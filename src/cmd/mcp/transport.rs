@@ -319,8 +319,16 @@ pub(crate) fn run_mcp_http_server(
         .with_allowed_hosts(http_allowed_hosts(listen.host, listen.allowed_hosts));
 
     let log_path = log;
+    let io_gate = std::sync::Arc::new(std::sync::RwLock::new(()));
     let service = StreamableHttpService::new(
-        move || PatchloomService::new(cwd.clone(), log_path.clone()).map_err(std::io::Error::other),
+        move || {
+            PatchloomService::new_sharing_gate(
+                cwd.clone(),
+                log_path.clone(),
+                std::sync::Arc::clone(&io_gate),
+            )
+            .map_err(std::io::Error::other)
+        },
         std::sync::Arc::new(LocalSessionManager::default()),
         config,
     );
@@ -515,6 +523,10 @@ mod bind_host_tests {
             .find("pub(crate) fn run_mcp_server")
             .unwrap_or(rest.len());
         let body = &rest[..end];
+        assert!(
+            body.contains("new_sharing_gate"),
+            "HTTP sessions must share one write lock (#2610)"
+        );
         assert!(
             !body.contains("disable_allowed_hosts"),
             "run_mcp_http_server must not call disable_allowed_hosts"

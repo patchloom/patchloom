@@ -25,9 +25,11 @@
 
 use rmcp::handler::server::router::tool::{ToolRoute, ToolRouter};
 use rmcp::handler::server::tool::ToolCallContext;
-use rmcp::model::{CallToolResult, ContentBlock, ErrorData as McpError, JsonObject, Tool};
+use rmcp::model::{
+    CallToolResult, ContentBlock, ErrorData as McpError, JsonObject, Tool, ToolAnnotations,
+};
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use crate::containment::PathGuard;
 use crate::exit;
@@ -112,6 +114,49 @@ fn validate_operation_paths(
 // Service
 // ---------------------------------------------------------------------------
 
+/// Tools that only read the workspace. Everything else takes the write lock.
+const READ_ONLY_MCP_TOOLS: &[&str] = &[
+    "read_file",
+    "doc_get",
+    "doc_query",
+    "doc_diff",
+    "search_files",
+    "md_lint",
+    "list_files",
+    "git_status",
+    "explain_plan",
+    "tidy_check",
+    "undo_list",
+    "server_info",
+    "ast_list",
+    "ast_read",
+    "ast_validate",
+    "ast_search",
+    "ast_refs",
+    "ast_deps",
+    "ast_map",
+    "ast_diff",
+    "ast_impact",
+];
+
+fn io_annotations(read_only: bool) -> ToolAnnotations {
+    let ann = ToolAnnotations::new()
+        .read_only(read_only)
+        .open_world(false);
+    if read_only {
+        ann
+    } else {
+        ann.destructive(true)
+    }
+}
+
+fn stamp_io_annotations(router: &mut ToolRouter<PatchloomService>) {
+    for route in router.map.values_mut() {
+        let read_only = READ_ONLY_MCP_TOOLS.contains(&route.attr.name.as_ref());
+        route.attr.annotations = Some(io_annotations(read_only));
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct PatchloomService {
     /// Shared across `blocking()` clones so each tool call does not copy
@@ -127,6 +172,11 @@ pub struct PatchloomService {
     /// `[exclude] globs` from `.patchloom.toml` at the server root (#2540).
     /// Merged ahead of per-request `exclude_patterns` on walker tools.
     config_exclude: Vec<String>,
+    /// Serializes tool bodies that read or write the workspace (#2610).
+    /// Write tools take this exclusively. Read tools take it shared.
+    /// `clone()` shares this `Arc`. HTTP sessions share it only when the
+    /// listener passes the same `Arc` into each session (`new_sharing_gate`).
+    io_gate: Arc<RwLock<()>>,
 }
 
 impl PatchloomService {
@@ -141,11 +191,33 @@ impl PatchloomService {
         Self::new_with_surface(cwd, log_flag, surface)
     }
 
+    /// Like [`new`](Self::new), but every service built with this `io_gate`
+    /// shares one write lock. The HTTP listener uses one gate for every session.
+    pub(crate) fn new_sharing_gate(
+        cwd: PathBuf,
+        log_flag: Option<String>,
+        io_gate: Arc<RwLock<()>>,
+    ) -> anyhow::Result<Self> {
+        let surface = surface::McpSurface::from_env().map_err(|e| {
+            anyhow::Error::new(crate::exit::InvalidInputError { msg: e.to_string() })
+        })?;
+        Self::build(cwd, log_flag, surface, io_gate)
+    }
+
     /// Build a service with an explicit surface (tests and hosts that inject config).
     pub(crate) fn new_with_surface(
         cwd: PathBuf,
         log_flag: Option<String>,
         surface: surface::McpSurface,
+    ) -> anyhow::Result<Self> {
+        Self::build(cwd, log_flag, surface, Arc::new(RwLock::new(())))
+    }
+
+    fn build(
+        cwd: PathBuf,
+        log_flag: Option<String>,
+        surface: surface::McpSurface,
+        io_gate: Arc<RwLock<()>>,
     ) -> anyhow::Result<Self> {
         // Allow absolute paths inside the workspace: agents often copy
         // server_info.cwd + relative into an absolute path. Outside workspace
@@ -194,6 +266,7 @@ impl PatchloomService {
                 anyhow::anyhow!("operation_variant_schema must produce a valid JSON object: {e}")
             })?;
 
+            let write = meta.tool_name != "read_file";
             tool_router.add_route(ToolRoute::new_dyn(
                 Tool::new(
                     meta.tool_name,
@@ -207,12 +280,16 @@ impl PatchloomService {
                     Box::pin(async move {
                         // Dyn routes must return CallToolResponse (rmcp 3.x MRTR).
                         // Individual handlers still produce CallToolResult; map via From.
-                        svc.blocking(move |svc| {
+                        let run = move |svc: &PatchloomService| {
                             let args_value = serde_json::Value::Object(args);
                             handle_simple_op(svc, meta, args_value, &fields)
-                        })
-                        .await
-                        .map(Into::into)
+                        };
+                        let result = if write {
+                            svc.blocking(run).await
+                        } else {
+                            svc.blocking_read(run).await
+                        };
+                        result.map(Into::into)
                     })
                 },
             ));
@@ -231,6 +308,7 @@ impl PatchloomService {
                 tool_router.remove_route(&name);
             }
         }
+        stamp_io_annotations(&mut tool_router);
 
         Ok(Self {
             tool_router: Arc::new(tool_router),
@@ -238,6 +316,7 @@ impl PatchloomService {
             call_log,
             surface,
             config_exclude,
+            io_gate,
         })
     }
 
@@ -283,6 +362,12 @@ impl PatchloomService {
         Arc::ptr_eq(&self.tool_router, &other.tool_router)
     }
 
+    /// True when both services take the same write lock (#2610).
+    #[cfg(test)]
+    pub(crate) fn shares_io_gate_with(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.io_gate, &other.io_gate)
+    }
+
     /// Run a synchronous closure on the blocking thread pool.
     ///
     /// All MCP handlers perform synchronous file I/O. Wrapping them in
@@ -302,10 +387,44 @@ impl PatchloomService {
         F: FnOnce(&PatchloomService) -> Result<R, McpError> + Send + 'static,
         R: Send + 'static,
     {
+        self.blocking_locked(true, f).await
+    }
+
+    /// Shared lock: read tools may overlap. They still wait for an in-flight write.
+    async fn blocking_read<F, R>(&self, f: F) -> Result<R, McpError>
+    where
+        F: FnOnce(&PatchloomService) -> Result<R, McpError> + Send + 'static,
+        R: Send + 'static,
+    {
+        self.blocking_locked(false, f).await
+    }
+
+    async fn blocking_locked<F, R>(&self, write: bool, f: F) -> Result<R, McpError>
+    where
+        F: FnOnce(&PatchloomService) -> Result<R, McpError> + Send + 'static,
+        R: Send + 'static,
+    {
         let svc = self.clone();
-        tokio::task::spawn_blocking(move || f(&svc))
-            .await
-            .map_err(|e| McpError::internal_error(format!("task join error: {e}"), None))?
+        let gate = Arc::clone(&self.io_gate);
+        tokio::task::spawn_blocking(move || {
+            // Hold the guard until the handler returns. The two `Option`s
+            // exist because read and write guards are different types.
+            let _write_guard;
+            let _read_guard;
+            if write {
+                _write_guard = Some(gate.write().unwrap_or_else(|err| err.into_inner()));
+                _read_guard = None;
+            } else {
+                _write_guard = None;
+                _read_guard = Some(gate.read().unwrap_or_else(|err| err.into_inner()));
+            }
+            let result = f(&svc);
+            drop(_write_guard);
+            drop(_read_guard);
+            result
+        })
+        .await
+        .map_err(|e| McpError::internal_error(format!("task join error: {e}"), None))?
     }
 
     /// Write a JSONL log entry for a tool call if logging is enabled.
