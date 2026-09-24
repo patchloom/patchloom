@@ -843,6 +843,15 @@ pub fn replace_content<'a>(
 ) -> (std::borrow::Cow<'a, str>, usize) {
     use std::borrow::Cow;
     apply_with_optional_bom(content, |content| {
+        // Agents send LF needles. A CRLF file would miss `a\nhello` and
+        // would store an LF replacement as a mixed ending (#2613).
+        let (from_buf, to_buf) = if compiled_re.is_none() {
+            adapt_literal_to_file_eol(content, from, to)
+        } else {
+            (Cow::Borrowed(from), Cow::Borrowed(to))
+        };
+        let from = from_buf.as_ref();
+        let to = to_buf.as_ref();
         if let Some(re) = compiled_re
             && uses_line_anchor_path(from, re)
         {
@@ -949,6 +958,29 @@ pub fn replace_content<'a>(
             }
         }
     })
+}
+
+/// When the file is CRLF and a literal side uses bare LF, match and splice
+/// with CRLF. A side that already contains `\r` is left alone.
+fn adapt_literal_to_file_eol<'a>(
+    content: &str,
+    from: &'a str,
+    to: &'a str,
+) -> (std::borrow::Cow<'a, str>, std::borrow::Cow<'a, str>) {
+    use std::borrow::Cow;
+    if crate::write::detect_eol(content) != "\r\n" {
+        return (Cow::Borrowed(from), Cow::Borrowed(to));
+    }
+    (lf_only_to_crlf(from), lf_only_to_crlf(to))
+}
+
+fn lf_only_to_crlf(s: &str) -> std::borrow::Cow<'_, str> {
+    use std::borrow::Cow;
+    if s.contains('\n') && !s.contains('\r') {
+        Cow::Owned(s.replace('\n', "\r\n"))
+    } else {
+        Cow::Borrowed(s)
+    }
 }
 
 fn replace_line_anchor_content<'a>(

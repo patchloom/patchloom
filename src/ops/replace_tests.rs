@@ -1114,6 +1114,30 @@ mod replace_tests {
         use super::*;
 
         #[test]
+        fn replace_content_literal_crlf_file_keeps_crlf_replacement() {
+            let content = "a\r\nhello\r\nb\r\n";
+            let (out, count) = replace_content(content, "hello", "x\ny", None, None);
+            assert_eq!(count, 1);
+            assert_eq!(&*out, "a\r\nx\r\ny\r\nb\r\n");
+        }
+
+        #[test]
+        fn replace_content_literal_lf_needle_matches_crlf_file() {
+            let content = "a\r\nhello\r\nb\r\n";
+            let (out, count) = replace_content(content, "a\nhello", "q", None, None);
+            assert_eq!(count, 1);
+            assert_eq!(&*out, "q\r\nb\r\n");
+        }
+
+        #[test]
+        fn replace_content_literal_crlf_needle_still_matches_and_lf_replacement_adapts() {
+            let content = "a\r\nhello\r\nb\r\n";
+            let (out, count) = replace_content(content, "a\r\nhello", "q\n", None, None);
+            assert_eq!(count, 1);
+            assert_eq!(&*out, "q\r\n\r\nb\r\n");
+        }
+
+        #[test]
         fn replace_content_literal_no_match() {
             let (out, count) = replace_content("hello", "zzz", "y", None, None);
             assert_eq!(out, "hello");
