@@ -3,7 +3,7 @@
 //! size-waiver: accepted single-domain bulk (policy #1408). Path + glob replace
 //! with fuzzy/context fallback co-located; do not split for LOC alone.
 
-use super::execute::{TxState, read_file_content};
+use super::execute::{TxState, enforce_expected_sha256, read_file_content};
 use crate::api::MatchMode;
 use crate::ops::replace::{
     InsertSide, ReplacementTextParams, build_replacement_text, compile_replace_regex,
@@ -597,6 +597,15 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                     .check_path(&rel)
                     .map_err(crate::fallback::EditError::guard_rejected)?;
             }
+        }
+
+        for path in &candidate_paths {
+            let rel = path
+                .strip_prefix(tx.cwd)
+                .unwrap_or(path.as_path())
+                .to_string_lossy()
+                .replace('\\', "/");
+            enforce_expected_sha256(&rel, tx)?;
         }
 
         for file_path in candidate_paths {

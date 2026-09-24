@@ -1,4 +1,6 @@
-use super::execute::{TxState, mark_write_target, read_file_content, update_file_content};
+use super::execute::{
+    TxState, enforce_expected_sha256, mark_write_target, read_file_content, update_file_content,
+};
 use crate::cli::global::EolMode;
 use crate::plan::Operation;
 use crate::write::WritePolicy;
@@ -28,6 +30,7 @@ pub(crate) fn execute_tidy_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
                         .unwrap_or(file.as_path())
                         .to_string_lossy()
                         .replace('\\', "/");
+                    enforce_expected_sha256(&rel, tx)?;
                     let child = Operation::TidyFix {
                         path: rel,
                         ensure_final_newline: *ensure_final_newline,

@@ -1504,6 +1504,24 @@ fn read_returns_whole_file_sha256_and_offset_window() {
 }
 
 #[test]
+fn read_past_eof_is_no_matches() {
+    let dir = TempDir::new().unwrap();
+    std::fs::write(dir.path().join("f.txt"), "a\nb\nc\nd\n").unwrap();
+    let plan: crate::plan::Plan = serde_json::from_value(serde_json::json!({
+        "version": 1,
+        "operations": [{"op": "read", "path": "f.txt", "offset": 99, "limit": 1}]
+    }))
+    .unwrap();
+    let report = crate::tx::execute_plan_direct(plan, dir.path(), None).unwrap();
+    assert_eq!(
+        report.error_kind.as_deref(),
+        Some("no_matches"),
+        "{report:?}"
+    );
+    assert!(!report.ok, "{report:?}");
+}
+
+#[test]
 fn expected_sha256_mismatch_is_stale_and_does_not_write() {
     let dir = TempDir::new().unwrap();
     std::fs::write(dir.path().join("f.txt"), "hello\n").unwrap();
@@ -1520,6 +1538,48 @@ fn expected_sha256_mismatch_is_stale_and_does_not_write() {
         std::fs::read_to_string(dir.path().join("f.txt")).unwrap(),
         "hello\n"
     );
+}
+
+#[test]
+fn expected_sha256_glob_mismatch_is_stale_and_does_not_write() {
+    let dir = TempDir::new().unwrap();
+    std::fs::write(dir.path().join("a.txt"), "hello\n").unwrap();
+    std::fs::write(dir.path().join("b.txt"), "hello\n").unwrap();
+    let plan: crate::plan::Plan = serde_json::from_value(serde_json::json!({
+        "version": 1,
+        "expected_sha256": {"a.txt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+        "operations": [{"op": "replace", "glob": "*.txt", "old": "hello", "new": "bye"}]
+    }))
+    .unwrap();
+    let report = crate::tx::execute_plan_direct(plan, dir.path(), None).unwrap();
+    assert_eq!(report.error_kind.as_deref(), Some("stale"), "{report:?}");
+    assert!(!report.applied, "{report:?}");
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("a.txt")).unwrap(),
+        "hello\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("b.txt")).unwrap(),
+        "hello\n"
+    );
+}
+
+#[test]
+fn expected_sha256_tidy_dir_mismatch_is_stale_and_does_not_write() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("sub").join("a.txt");
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(&file, "hello \n").unwrap();
+    let plan: crate::plan::Plan = serde_json::from_value(serde_json::json!({
+        "version": 1,
+        "expected_sha256": {"sub/a.txt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+        "operations": [{"op": "tidy.fix", "path": "sub"}]
+    }))
+    .unwrap();
+    let report = crate::tx::execute_plan_direct(plan, dir.path(), None).unwrap();
+    assert_eq!(report.error_kind.as_deref(), Some("stale"), "{report:?}");
+    assert!(!report.applied, "{report:?}");
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "hello \n");
 }
 
 #[test]

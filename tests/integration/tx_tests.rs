@@ -5560,7 +5560,7 @@ fn test_tx_read_lines_mixed_cr_is_line_three() {
 }
 
 #[test]
-fn test_tx_read_lines_start_past_eof_clamps_metadata() {
+fn test_tx_read_lines_start_past_eof_is_no_matches() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("short.txt");
     fs::write(&file, "a\nb\n").unwrap();
@@ -5580,12 +5580,18 @@ fn test_tx_read_lines_start_past_eof_clamps_metadata() {
         .output()
         .unwrap();
 
-    assert!(output.status.success());
+    // Same contract as CLI read: past EOF is no_matches, not an empty success.
+    assert_eq!(output.status.code(), Some(3), "{output:?}");
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(json["reads"][0]["content"].as_str().unwrap(), "");
-    assert_eq!(json["reads"][0]["total_lines"], 2);
-    assert_eq!(json["reads"][0]["start_line"], 0);
-    assert_eq!(json["reads"][0]["end_line"], 0);
+    assert_eq!(json["ok"], false);
+    assert_eq!(json["error_kind"], "no_matches");
+    assert!(
+        json["error"]
+            .as_str()
+            .unwrap()
+            .contains("line range outside file"),
+        "got: {json}"
+    );
 }
 
 #[test]
