@@ -6,7 +6,7 @@ Thank you for your interest in contributing to Patchloom!
 
 - Rust 1.95+ ([rustup.rs](https://rustup.rs/); see `rust-version` in `Cargo.toml`)
 - rustfmt and clippy: `rustup component add rustfmt clippy`
-- python3 (used by `audit-test-hygiene`, `server-json-test`, `verify-homebrew-version-test`, `scoop-manifest-test`, `chocolatey-package-test`, `pack-mcpb-test`, `force-release-version-test`, and `workflow-sanity-test`)
+- python3 (used by `audit-test-hygiene`, `server-json-test`, `verify-homebrew-version-test`, `scoop-manifest-test`, `chocolatey-package-test`, `pack-mcpb-test`, `force-release-version-test`, `workflow-sanity-test`, and `dco-check-test`)
 - A C toolchain so tree-sitter grammars can compile (Xcode Command Line Tools on macOS; `build-essential` on Debian/Ubuntu)
 - Git
 
@@ -20,7 +20,7 @@ cd patchloom
 make check
 ```
 
-`make check` runs formatting, clippy, unit tests (all-features + no-default-features + ast-only + mcp-without-ast + library-hygiene), integration tests, PTY tests, release notes verification, test hygiene audit, generated-doc freshness checks (`check-patchloom-md`, `check-readme`), `server-json-test` (MCP Registry `server.json` description ≤100 chars), `verify-homebrew-version-test` (release tap version-assert script helpers), packaging-script unit tests (`scoop-manifest-test`, `chocolatey-package-test`, `pack-mcpb-test`, `force-release-version-test`), `workflow-sanity-test` (CI actionlint/zizmor job lock), and `apply-release-notes-test` (Recipe A triggers and notes-branch apply). It is the local Linux gate, not every GitHub required check: `audit`, `deny`, and Windows stay in CI. While iterating locally, `make check-fast` is almost the same but skips only `check-patchloom-md` (still runs `check-readme`, `server-json-test`, `verify-homebrew-version-test`, `scoop-manifest-test`, `chocolatey-package-test`, `pack-mcpb-test`, `force-release-version-test`, `workflow-sanity-test`, and `apply-release-notes-test`). Optional `make workflow-sanity` runs actionlint + zizmor when those tools are installed; missing tools skip instead of failing `make check`.
+`make check` runs formatting, clippy, unit tests (all-features + no-default-features + ast-only + mcp-without-ast + library-hygiene), integration tests, PTY tests, release notes verification, test hygiene audit, generated-doc freshness checks (`check-patchloom-md`, `check-readme`), `server-json-test` (MCP Registry `server.json` description ≤100 chars), `verify-homebrew-version-test` (release tap version-assert script helpers), packaging-script unit tests (`scoop-manifest-test`, `chocolatey-package-test`, `pack-mcpb-test`, `force-release-version-test`), `workflow-sanity-test` (CI actionlint/zizmor job lock), `apply-release-notes-test` (Recipe A triggers and notes-branch apply), and `dco-check-test` (DCO sign-off, and rejection of Anthropic co-author trailers). It is the local Linux gate, not every GitHub required check: `audit`, `deny`, and Windows stay in CI. While iterating locally, `make check-fast` is almost the same but skips only `check-patchloom-md` (still runs `check-readme`, `server-json-test`, `verify-homebrew-version-test`, `scoop-manifest-test`, `chocolatey-package-test`, `pack-mcpb-test`, `force-release-version-test`, `workflow-sanity-test`, `apply-release-notes-test`, and `dco-check-test`). Optional `make workflow-sanity` runs actionlint + zizmor when those tools are installed; missing tools skip instead of failing `make check`.
 
 ## Issues and triage
 
@@ -73,13 +73,14 @@ This is a quick-reference subset. For the complete list, see [AGENTS.md](./AGENT
 | `make pty-test` | Run PTY-based interactive terminal tests (serial) |
 | `make clippy` | Run clippy with `-D warnings` |
 | `make check` | Local Linux gate (run before every commit). Does not include `audit`, `deny`, or Windows CI. |
-| `make check-fast` | Fast check (skips PATCHLOOM.md sync only; still runs `check-readme`, `server-json-test`, `verify-homebrew-version-test`, `scoop-manifest-test`, `chocolatey-package-test`, `pack-mcpb-test`, `force-release-version-test`, `workflow-sanity-test`, and `apply-release-notes-test`) |
+| `make check-fast` | Fast check (skips PATCHLOOM.md sync only; still runs `check-readme`, `server-json-test`, `verify-homebrew-version-test`, `scoop-manifest-test`, `chocolatey-package-test`, `pack-mcpb-test`, `force-release-version-test`, `workflow-sanity-test`, `apply-release-notes-test`, and `dco-check-test`) |
 | `make verify-homebrew-version-test` | Unit tests for `scripts/verify-homebrew-version.sh` (part of `check`) |
 | `make scoop-manifest-test` | Unit tests for `scripts/update-scoop-manifest.py` (part of `check`) |
 | `make chocolatey-package-test` | Unit tests for `scripts/update-chocolatey-package.py` (part of `check`) |
 | `make pack-mcpb-test` | Unit tests for `scripts/pack-mcpb.sh` (skips full pack when `mcpb` CLI missing; part of `check`) |
 | `make force-release-version-test` | Unit tests for `scripts/test_force_release_version.py` (part of `check`) |
 | `make workflow-sanity-test` | Lock CI `workflow-sanity` job and pinned actionlint/zizmor (part of `check`) |
+| `make dco-check-test` | Lock the DCO sign-off check, including rejection of Anthropic co-author trailers (part of `check`) |
 | `make apply-release-notes-test` | Lock Recipe A triggers and notes-branch apply (part of `check`) |
 | `make workflow-sanity` | Optional local actionlint + zizmor; skips if tools are missing |
 | `make embedder-smoke` | Pre-release host contracts (fuzzy token span with `--allow-absent-old`, nested undo list, plan `key` alias, `--contain` → `guard_rejected`, create/rename dest-exists → `already_exists`, delete missing → `not_found`, sole binary → `binary`, invalid UTF-8 → `invalid_encoding`, library `fuzzy_span_suspicious` #1981, buffer multi-op `refuse_batch_if_suspicious_fuzzy` #2064, path-only non-text rename/delete + `apply_fragment_to_file` + honesty constructors #2031-#2033, library `for_each` + lifecycle shell preflight #2168/#2169, patch dest helpers + git copy #2170-#2176, public `*_or_timeout` deadline peels `parse_timeout` #2444/#2445/#2446/#2449). Not part of `check`; run before tagging a release |
