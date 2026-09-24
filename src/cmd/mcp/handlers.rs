@@ -233,7 +233,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<DocGetParams>,
     ) -> Result<CallToolResult, McpError> {
-        self.blocking(move |svc| {
+        self.blocking_read(move |svc| {
             svc.check_path(&p.path)?;
             validate_param_size("selector", &p.selector)?;
             let abs = svc.cwd().join(&p.path);
@@ -253,7 +253,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<DocQueryParams>,
     ) -> Result<CallToolResult, McpError> {
-        self.blocking(move |svc| {
+        self.blocking_read(move |svc| {
             svc.check_path(&p.path)?;
             if let Some(ref sel) = p.selector {
                 validate_param_size("selector", sel)?;
@@ -309,7 +309,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<DocDiffParams>,
     ) -> Result<CallToolResult, McpError> {
-        self.blocking(move |svc| {
+        self.blocking_read(move |svc| {
             svc.check_path(&p.file_a)?;
             svc.check_path(&p.file_b)?;
             let abs_a = svc.cwd().join(&p.file_a);
@@ -330,7 +330,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<SearchParams>,
     ) -> Result<CallToolResult, McpError> {
-        self.blocking(move |svc| {
+        self.blocking_read(move |svc| {
             if p.files_with_matches && p.count {
                 return Err(McpError::invalid_params(
                     "files_with_matches and count cannot be combined",
@@ -550,7 +550,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Replace text in a file. Literal by default; set regex=true for regex. Options: nth, insert_before, insert_after, case_insensitive, multiline, if_exists, whole_line, range, word_boundary, fuzzy, min_fuzzy_score, allow_absent_old. Set word_boundary=true to match only whole words (prevents 'SetupFile' matching inside 'BenchSetupFile'). Set whole_line=true to replace entire lines containing a match (use with new=\"\" to delete lines). Fuzzy: when exact old is absent, refuse by default even if score ≥ min_fuzzy_score (#1758); set allow_absent_old=true only for deliberate approximate recovery. Prefer ast_rename for identifiers. IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity. Example: {\"path\": \"README.md\", \"old\": \"1.0.0\", \"new\": \"2.0.0\"}. Insert after anchor (mutually exclusive with new): {\"path\": \"src/main.rs\", \"old\": \"use std::io;\", \"insert_after\": \"use std::fs;\"}"
+        description = "Replace text in a file. Literal by default; set regex=true for regex. Options: nth, insert_before, insert_after, case_insensitive, multiline, if_exists, whole_line, range, word_boundary, fuzzy, min_fuzzy_score, allow_absent_old. Set word_boundary=true to match only whole words (prevents 'SetupFile' matching inside 'BenchSetupFile'). Set whole_line=true to replace entire lines containing a match (use with new=\"\" to delete lines). Fuzzy: when exact old is absent, refuse by default even if score ≥ min_fuzzy_score (#1758); set allow_absent_old=true only for deliberate approximate recovery. Prefer ast_rename for identifiers. Example: {\"path\": \"README.md\", \"old\": \"1.0.0\", \"new\": \"2.0.0\"}. Insert after anchor (mutually exclusive with new): {\"path\": \"src/main.rs\", \"old\": \"use std::io;\", \"insert_after\": \"use std::fs;\"}"
     )]
     async fn replace_text(
         &self,
@@ -678,7 +678,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Move a markdown heading section to a new position (same file reorder or cross-file). Exactly one of before or after is required. Omit to for same-file reorder. IMPORTANT: do NOT issue concurrent writes against the same file(s); use execute_plan for multi-op atomicity. Example: {\"path\": \"spec.md\", \"heading\": \"## Appendix\", \"to\": \"notes.md\", \"before\": \"## References\"}"
+        description = "Move a markdown heading section to a new position (same file reorder or cross-file). Exactly one of before or after is required. Omit to for same-file reorder. Example: {\"path\": \"spec.md\", \"heading\": \"## Appendix\", \"to\": \"notes.md\", \"before\": \"## References\"}"
     )]
     async fn md_move_section(
         &self,
@@ -722,7 +722,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<MdLintAgentsParams>,
     ) -> Result<CallToolResult, McpError> {
-        self.blocking(move |svc| {
+        self.blocking_read(move |svc| {
             svc.check_path(&p.path)?;
             let abs = svc.cwd().join(&p.path);
             // Strict sole-path (#1894): binary / invalid UTF-8 → invalid_params.
@@ -757,7 +757,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Apply a unified diff, a Codex *** Begin Patch document, or an Aider SEARCH/REPLACE / DiffFenced document. Default apply=true writes (same as CLI patch apply --apply). Set apply=false for check-only preview (CLI patch check; disk is unchanged). The diff parameter is the full unified diff text, a *** Begin Patch ... *** End Patch envelope (Add/Update/Delete/Move), or <<<<<<< SEARCH / ======= / >>>>>>> REPLACE blocks (dest path above ------- after SEARCH). SEARCH/REPLACE is unique by default (multi-match is ambiguous, no write); set replace_all=true to update every exact match. Empty-hunk +++ /dev/null (git deleted file mode, no hunks) unlinks. A hunked delete applies minus lines first; leftover bytes rewrite the file (preview --diff). Stale minus lines are ambiguous and the file is not removed; regenerate minus lines or use file.delete for path-only unlink. Use on_stale=merge for three-way merge on stale unified-diff context; allow_conflicts=true writes conflict markers. Never commit files containing conflict markers. IMPORTANT: do NOT issue concurrent patches/writes against the same files; use execute_plan for multi-op atomicity. Example: {\"diff\": \"--- a/file.txt\\n+++ b/file.txt\\n@@ -1 +1 @@\\n-old\\n+new\", \"on_stale\": \"fail\"}"
+        description = "Apply a unified diff, a Codex *** Begin Patch document, or an Aider SEARCH/REPLACE / DiffFenced document. Default apply=true writes (same as CLI patch apply --apply). Set apply=false for check-only preview (CLI patch check; disk is unchanged). The diff parameter is the full unified diff text, a *** Begin Patch ... *** End Patch envelope (Add/Update/Delete/Move), or <<<<<<< SEARCH / ======= / >>>>>>> REPLACE blocks (dest path above ------- after SEARCH). SEARCH/REPLACE is unique by default (multi-match is ambiguous, no write); set replace_all=true to update every exact match. Empty-hunk +++ /dev/null (git deleted file mode, no hunks) unlinks. A hunked delete applies minus lines first; leftover bytes rewrite the file (preview --diff). Stale minus lines are ambiguous and the file is not removed; regenerate minus lines or use file.delete for path-only unlink. Use on_stale=merge for three-way merge on stale unified-diff context; allow_conflicts=true writes conflict markers. Never commit files containing conflict markers. Example: {\"diff\": \"--- a/file.txt\\n+++ b/file.txt\\n@@ -1 +1 @@\\n-old\\n+new\", \"on_stale\": \"fail\"}"
     )]
     async fn apply_patch(
         &self,
@@ -875,7 +875,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Replace the same text across multiple files in one call. Engine staging is atomic for applied writes (all written files succeed or none change). Pattern misses are soft by default: matching files still apply and total misses appear in refused[]; set require_change=true to fail the whole batch if any file has no match. Canonical field is files (array); singular file is accepted as an alias for one path. Optional fuzzy enables similarity fallback; when exact old is absent, refuse by default unless allow_absent_old=true (#1758). JSON reports match_mode (exact/fuzzy/anchored), optional match_score, optional matched_text, match_count per change and aggregate (#1674). IMPORTANT: do NOT issue concurrent write calls targeting the same files; use execute_plan for multi-op atomicity. Example: {\"files\": [\"Cargo.toml\", \"README.md\"], \"old\": \"0.1.0\", \"new\": \"0.2.0\"}"
+        description = "Replace the same text across multiple files in one call. Engine staging is atomic for applied writes (all written files succeed or none change). Pattern misses are soft by default: matching files still apply and total misses appear in refused[]; set require_change=true to fail the whole batch if any file has no match. Canonical field is files (array); singular file is accepted as an alias for one path. Optional fuzzy enables similarity fallback; when exact old is absent, refuse by default unless allow_absent_old=true (#1758). JSON reports match_mode (exact/fuzzy/anchored), optional match_score, optional matched_text, match_count per change and aggregate (#1674). Example: {\"files\": [\"Cargo.toml\", \"README.md\"], \"old\": \"0.1.0\", \"new\": \"0.2.0\"}"
     )]
     async fn batch_replace(
         &self,
@@ -928,7 +928,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Fix whitespace in multiple files in one call: trims trailing spaces and ensures final newline. Atomic: all files succeed or none change. Canonical field is files (array); singular file is accepted as an alias for one path. IMPORTANT: do NOT issue concurrent write calls targeting the same files; use execute_plan for multi-op atomicity. Example: {\"files\": [\"src/main.rs\", \"src/lib.rs\"]}"
+        description = "Fix whitespace in multiple files in one call: trims trailing spaces and ensures final newline. Atomic: all files succeed or none change. Canonical field is files (array); singular file is accepted as an alias for one path. Example: {\"files\": [\"src/main.rs\", \"src/lib.rs\"]}"
     )]
     async fn batch_tidy(
         &self,
@@ -1093,7 +1093,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<ListFilesParams>,
     ) -> Result<CallToolResult, McpError> {
-        self.blocking(move |svc| {
+        self.blocking_read(move |svc| {
             if p.path.as_ref().is_some_and(|s| s.trim().is_empty()) {
                 return Err(McpError::invalid_params(
                     "path must not be empty or whitespace-only (use paths for multi-root, or omit for workspace root)",
@@ -1161,7 +1161,7 @@ impl PatchloomService {
         &self,
         Parameters(_p): Parameters<EmptyParams>,
     ) -> Result<CallToolResult, McpError> {
-        self.blocking(move |svc| {
+        self.blocking_read(move |svc| {
             let global = GlobalFlags::with_cwd(svc.cwd());
             let status = crate::cmd::status::collect_status(&[], &global).map_err(|e| {
                 // Non-git workspace / invalid_input is agent input, not a server bug.
@@ -1221,7 +1221,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<ExplainPlanParams>,
     ) -> Result<CallToolResult, McpError> {
-        self.blocking(move |svc| {
+        self.blocking_read(move |svc| {
             let plan_text = p.plan.as_deref().map(str::trim).filter(|s| !s.is_empty());
             let path = p.path.as_deref().map(str::trim).filter(|s| !s.is_empty());
             if plan_text.is_none() && path.is_none() {
@@ -1277,7 +1277,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<TidyCheckParams>,
     ) -> Result<CallToolResult, McpError> {
-        self.blocking(move |svc| {
+        self.blocking_read(move |svc| {
             if p.path.as_ref().is_some_and(|s| s.trim().is_empty()) {
                 return Err(McpError::invalid_params(
                     "path must not be empty or whitespace-only (use paths for multi-root, or omit for workspace root)",
@@ -1333,7 +1333,7 @@ impl PatchloomService {
         &self,
         Parameters(_p): Parameters<EmptyParams>,
     ) -> Result<CallToolResult, McpError> {
-        self.blocking(move |svc| {
+        self.blocking_read(move |svc| {
             let cwd = svc.cwd();
             let (sessions, warnings) =
                 crate::cmd::undo::collect_sessions(cwd).map_err(map_undo_mcp_err)?;
@@ -1368,7 +1368,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Preview or restore files from a --apply backup session. Default is dry-run (applied:false, error_kind:changes_detected). Set apply=true to restore. Omit session to use the newest. Optional path[] restores only those session files (unknown path is no_matches). Paths stay inside the MCP workspace (AllowIfContained). IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity. Example: {\"session\": \"<id-from-undo_list>\", \"apply\": true}"
+        description = "Preview or restore files from a --apply backup session. Default is dry-run (applied:false, error_kind:changes_detected). Set apply=true to restore. Omit session to use the newest. Optional path[] restores only those session files (unknown path is no_matches). Paths stay inside the MCP workspace (AllowIfContained). Example: {\"session\": \"<id-from-undo_list>\", \"apply\": true}"
     )]
     async fn undo_restore(
         &self,
@@ -1487,7 +1487,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<AstListParams>,
     ) -> Result<CallToolResult, McpError> {
-        self.blocking(move |svc| ast_tools::handle_ast_list(svc, p))
+        self.blocking_read(move |svc| ast_tools::handle_ast_list(svc, p))
             .await
     }
 
@@ -1498,12 +1498,12 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<AstReadParams>,
     ) -> Result<CallToolResult, McpError> {
-        self.blocking(move |svc| ast_tools::handle_ast_read(svc, p))
+        self.blocking_read(move |svc| ast_tools::handle_ast_read(svc, p))
             .await
     }
 
     #[tool(
-        description = "Rename identifiers across files using AST-aware renaming (skips strings and comments). IMPORTANT: do NOT issue concurrent renames (or other writes) against the same file or directory tree; use execute_plan for multi-op atomicity (e.g. multiple renames). Example: {\"path\": \"src/\", \"old\": \"process_data\", \"new\": \"transform_data\"}"
+        description = "Rename identifiers across files using AST-aware renaming (skips strings and comments). Example: {\"path\": \"src/\", \"old\": \"process_data\", \"new\": \"transform_data\"}"
     )]
     async fn ast_rename(
         &self,
@@ -1520,7 +1520,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<AstValidateParams>,
     ) -> Result<CallToolResult, McpError> {
-        self.blocking(move |svc| ast_tools::handle_ast_validate(svc, p))
+        self.blocking_read(move |svc| ast_tools::handle_ast_validate(svc, p))
             .await
     }
 
@@ -1531,7 +1531,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<AstSearchParams>,
     ) -> Result<CallToolResult, McpError> {
-        self.blocking(move |svc| ast_tools::handle_ast_search(svc, p))
+        self.blocking_read(move |svc| ast_tools::handle_ast_search(svc, p))
             .await
     }
 
@@ -1542,7 +1542,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<AstRefsParams>,
     ) -> Result<CallToolResult, McpError> {
-        self.blocking(move |svc| ast_tools::handle_ast_refs(svc, p))
+        self.blocking_read(move |svc| ast_tools::handle_ast_refs(svc, p))
             .await
     }
 
@@ -1553,7 +1553,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<AstDepsParams>,
     ) -> Result<CallToolResult, McpError> {
-        self.blocking(move |svc| ast_tools::handle_ast_deps(svc, p))
+        self.blocking_read(move |svc| ast_tools::handle_ast_deps(svc, p))
             .await
     }
 
@@ -1564,7 +1564,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<AstMapParams>,
     ) -> Result<CallToolResult, McpError> {
-        self.blocking(move |svc| ast_tools::handle_ast_map(svc, p))
+        self.blocking_read(move |svc| ast_tools::handle_ast_map(svc, p))
             .await
     }
 
@@ -1575,7 +1575,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<AstDiffParams>,
     ) -> Result<CallToolResult, McpError> {
-        self.blocking(move |svc| ast_tools::handle_ast_diff(svc, p))
+        self.blocking_read(move |svc| ast_tools::handle_ast_diff(svc, p))
             .await
     }
 
@@ -1586,12 +1586,12 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<AstImpactParams>,
     ) -> Result<CallToolResult, McpError> {
-        self.blocking(move |svc| ast_tools::handle_ast_impact(svc, p))
+        self.blocking_read(move |svc| ast_tools::handle_ast_impact(svc, p))
             .await
     }
 
     #[tool(
-        description = "Replace text only within a specific symbol's body using AST scoping. Precise: only changes code inside the named symbol, leaving everything else untouched. IMPORTANT: do NOT issue concurrent writes against the same file or directory tree; use execute_plan for multi-op atomicity. Example: {\"path\": \"src/lib.rs\", \"symbol\": \"parse_config\", \"old\": \"unwrap()\", \"new\": \"expect(\\\"parse failed\\\")\"}"
+        description = "Replace text only within a specific symbol's body using AST scoping. Precise: only changes code inside the named symbol, leaving everything else untouched. Example: {\"path\": \"src/lib.rs\", \"symbol\": \"parse_config\", \"old\": \"unwrap()\", \"new\": \"expect(\\\"parse failed\\\")\"}"
     )]
     async fn ast_replace(
         &self,
@@ -1602,7 +1602,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Rewrite a function signature with structured fields (visibility, parameters, return_type) or a full new_signature string. Multi-language via tree-sitter. IMPORTANT: do NOT issue concurrent writes against the same file; use execute_plan for multi-op atomicity. Example: {\"path\": \"src/lib.rs\", \"old\": \"process\", \"parameters\": \"(x: i32)\", \"return_type\": \"-> String\"}"
+        description = "Rewrite a function signature with structured fields (visibility, parameters, return_type) or a full new_signature string. Multi-language via tree-sitter. Example: {\"path\": \"src/lib.rs\", \"old\": \"process\", \"parameters\": \"(x: i32)\", \"return_type\": \"-> String\"}"
     )]
     async fn ast_rewrite_signature(
         &self,
@@ -1613,7 +1613,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Insert code at a structurally-aware position: inside a module/impl/struct (at start or end), or after/before a named symbol. Indentation is auto-detected. IMPORTANT: do NOT issue concurrent writes against the same file; use execute_plan for multi-op atomicity. Example: {\"path\": \"src/lib.rs\", \"content\": \"fn new_fn() {}\", \"after\": \"existing_fn\"}"
+        description = "Insert code at a structurally-aware position: inside a module/impl/struct (at start or end), or after/before a named symbol. Indentation is auto-detected. Example: {\"path\": \"src/lib.rs\", \"content\": \"fn new_fn() {}\", \"after\": \"existing_fn\"}"
     )]
     async fn ast_insert(
         &self,
@@ -1624,7 +1624,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Wrap existing code in a structural block (module, impl, cfg, etc.). Specify symbols by name or a line range. IMPORTANT: do NOT issue concurrent writes against the same file; use execute_plan for multi-op atomicity. Example: {\"path\": \"src/lib.rs\", \"symbols\": [\"helper_fn\", \"HelperStruct\"], \"wrapper\": \"mod helpers\"}"
+        description = "Wrap existing code in a structural block (module, impl, cfg, etc.). Specify symbols by name or a line range. Example: {\"path\": \"src/lib.rs\", \"symbols\": [\"helper_fn\", \"HelperStruct\"], \"wrapper\": \"mod helpers\"}"
     )]
     async fn ast_wrap(
         &self,
@@ -1635,7 +1635,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Manage import/use statements: add (idempotent), remove, deduplicate. With no mutation args, lists existing imports. IMPORTANT: when mutating, do NOT issue concurrent writes against the same file; use execute_plan for multi-op atomicity. Example: {\"path\": \"src/main.rs\", \"add\": [\"use std::collections::HashMap;\"]}"
+        description = "Manage import/use statements: add (idempotent), remove, deduplicate. With no mutation args, lists existing imports. Example: {\"path\": \"src/main.rs\", \"add\": [\"use std::collections::HashMap;\"]}"
     )]
     async fn ast_imports(
         &self,
@@ -1646,7 +1646,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Reorder symbols within a file or scope by name, kind, or custom order. IMPORTANT: do NOT issue concurrent writes against the same file; use execute_plan for multi-op atomicity. Example: {\"path\": \"src/lib.rs\", \"order\": \"alphabetical\"} or {\"path\": \"src/lib.rs\", \"order\": [\"Struct\", \"impl Struct\", \"helper\"], \"inside\": \"mod tests\"}"
+        description = "Reorder symbols within a file or scope by name, kind, or custom order. Example: {\"path\": \"src/lib.rs\", \"order\": \"alphabetical\"} or {\"path\": \"src/lib.rs\", \"order\": [\"Struct\", \"impl Struct\", \"helper\"], \"inside\": \"mod tests\"}"
     )]
     async fn ast_reorder(
         &self,
@@ -1657,7 +1657,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Group symbols into a named module within a file. Creates the module if it doesn't exist, or appends to it. IMPORTANT: do NOT issue concurrent writes against the same file; use execute_plan for multi-op atomicity. Example: {\"path\": \"src/tests.rs\", \"module\": \"line_endings\", \"symbols\": [\"test_crlf\", \"test_lf\"], \"preamble\": \"use super::*;\"}"
+        description = "Group symbols into a named module within a file. Creates the module if it doesn't exist, or appends to it. Example: {\"path\": \"src/tests.rs\", \"module\": \"line_endings\", \"symbols\": [\"test_crlf\", \"test_lf\"], \"preamble\": \"use super::*;\"}"
     )]
     async fn ast_group(
         &self,
@@ -1668,7 +1668,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Move symbols between files. Removes from source, inserts into target (creating it if needed). IMPORTANT: do NOT issue concurrent moves/writes against the same files; use execute_plan for multi-op atomicity. Example: {\"path\": \"src/big.rs\", \"target\": \"src/helpers.rs\", \"symbols\": [\"helper_fn\"], \"target_prepend\": \"use super::*;\"}"
+        description = "Move symbols between files. Removes from source, inserts into target (creating it if needed). Example: {\"path\": \"src/big.rs\", \"target\": \"src/helpers.rs\", \"symbols\": [\"helper_fn\"], \"target_prepend\": \"use super::*;\"}"
     )]
     async fn ast_move(
         &self,
@@ -1679,7 +1679,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Extract a symbol (module, function, struct) to a separate file. For modules with unwrap=true, content is un-indented. IMPORTANT: do NOT issue concurrent extracts/writes against the same files; use execute_plan for multi-op atomicity. Example: {\"source\": \"src/lib.rs\", \"symbol\": \"tests\", \"target\": \"src/lib_tests.rs\", \"replacement\": \"mod tests;\", \"prepend\": \"use super::*;\"}"
+        description = "Extract a symbol (module, function, struct) to a separate file. For modules with unwrap=true, content is un-indented. Example: {\"source\": \"src/lib.rs\", \"symbol\": \"tests\", \"target\": \"src/lib_tests.rs\", \"replacement\": \"mod tests;\", \"prepend\": \"use super::*;\"}"
     )]
     async fn ast_extract_to_file(
         &self,
@@ -1690,7 +1690,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Split a file into multiple target files by distributing symbols. Atomic: all targets succeed or all roll back. IMPORTANT: do NOT issue concurrent splits/writes against the same files; use execute_plan for multi-op atomicity. Example: {\"source\": \"src/big.rs\", \"targets\": [{\"path\": \"src/types.rs\", \"symbols\": [\"Config\", \"Mode\"], \"prepend\": \"use super::*;\"}], \"keep_in_source\": [\"main\"], \"source_suffix\": \"mod types;\"}"
+        description = "Split a file into multiple target files by distributing symbols. Atomic: all targets succeed or all roll back. Example: {\"source\": \"src/big.rs\", \"targets\": [{\"path\": \"src/types.rs\", \"symbols\": [\"Config\", \"Mode\"], \"prepend\": \"use super::*;\"}], \"keep_in_source\": [\"main\"], \"source_suffix\": \"mod types;\"}"
     )]
     async fn ast_split(
         &self,
