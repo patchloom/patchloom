@@ -101,7 +101,10 @@ fn parse_prop_assignment(line: &str) -> Option<(String, String)> {
     if key.is_empty() {
         return None;
     }
-    Some((key.to_string(), unquote(trimmed[sep + 1..].trim())))
+    Some((
+        key.to_string(),
+        decode_properties_value(trimmed[sep + 1..].trim()),
+    ))
 }
 
 fn parse_ini(content: &str) -> Value {
@@ -123,7 +126,7 @@ fn parse_ini(content: &str) -> Value {
         if key.is_empty() {
             continue;
         }
-        let val = Value::String(unquote(trimmed[eq + 1..].trim()));
+        let val = Value::String(trimmed[eq + 1..].trim().to_string());
         match &section {
             Some(sec) => {
                 let obj = root
@@ -159,6 +162,66 @@ fn unquote(s: &str) -> String {
         }
     }
     s.to_string()
+}
+
+/// Java `Properties` keeps quotes. Escape `\`, newlines, tabs, and leading
+/// whitespace. Do not wrap the value in quotes.
+fn encode_properties_value(s: &str) -> String {
+    let mut out = String::new();
+    let mut chars = s.chars().peekable();
+    while matches!(chars.peek(), Some(c) if *c == ' ' || *c == '\t') {
+        let c = chars.next().unwrap();
+        if c == '\t' {
+            out.push_str("\\t");
+        } else {
+            out.push('\\');
+            out.push(c);
+        }
+    }
+    for c in chars {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            other => out.push(other),
+        }
+    }
+    out
+}
+
+fn decode_properties_value(s: &str) -> String {
+    if !s.contains('\\') {
+        return s.to_string();
+    }
+    let mut out = String::new();
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('n') => out.push('\n'),
+            Some('r') => out.push('\r'),
+            Some('t') => out.push('\t'),
+            Some('u') => {
+                let hex: String = chars.by_ref().take(4).collect();
+                if hex.len() == 4
+                    && let Ok(cp) = u32::from_str_radix(&hex, 16)
+                    && let Some(ch) = char::from_u32(cp)
+                {
+                    out.push(ch);
+                } else {
+                    out.push('u');
+                    out.push_str(&hex);
+                }
+            }
+            Some(other) => out.push(other),
+            None => out.push('\\'),
+        }
+    }
+    out
 }
 
 fn quote_if_needed(s: &str) -> String {
@@ -214,7 +277,7 @@ fn serialize_properties(value: &Value) -> anyhow::Result<String> {
         })?;
         out.push_str(k);
         out.push('=');
-        out.push_str(&quote_if_needed(&s));
+        out.push_str(&encode_properties_value(&s));
         out.push('\n');
     }
     Ok(out)
@@ -239,7 +302,7 @@ fn serialize_ini(value: &Value) -> anyhow::Result<String> {
                     })?;
                     out.push_str(ik);
                     out.push('=');
-                    out.push_str(&quote_if_needed(&s));
+                    out.push_str(&s);
                     out.push('\n');
                 }
             }
@@ -249,7 +312,7 @@ fn serialize_ini(value: &Value) -> anyhow::Result<String> {
                 })?;
                 out.push_str(k);
                 out.push('=');
-                out.push_str(&quote_if_needed(&s));
+                out.push_str(&s);
                 out.push('\n');
             }
         }
@@ -302,7 +365,7 @@ fn splice_flat(
         if let Some(idx) = find_last_flat_line(lines, key, style) {
             lines[idx] = replace_flat_value(&lines[idx], &new_s, style);
         } else {
-            lines.push(format!("{key}={}", quote_if_needed(&new_s)));
+            lines.push(format!("{key}={}", encode_flat_value(style, &new_s)));
         }
     }
     let mut remove = Vec::new();
@@ -358,7 +421,14 @@ fn replace_flat_value(line: &str, new_s: &str, style: KvStyle) -> String {
             (format!("{prefix}{}{sep}", rest[..sep_at].trim_end()), ())
         }
     };
-    format!("{head}{}", quote_if_needed(new_s))
+    format!("{head}{}", encode_flat_value(style, new_s))
+}
+
+fn encode_flat_value(style: KvStyle, s: &str) -> String {
+    match style {
+        KvStyle::Env => quote_if_needed(s),
+        KvStyle::Properties => encode_properties_value(s),
+    }
 }
 
 fn splice_ini(
@@ -379,7 +449,7 @@ fn splice_ini(
                     if let Some(idx) = find_ini_key_line(lines, key, ik) {
                         lines[idx] = replace_ini_value(&lines[idx], &new_s);
                     } else if let Some(end) = ini_section_end(lines, key) {
-                        lines.insert(end, format!("{ik}={}", quote_if_needed(&new_s)));
+                        lines.insert(end, format!("{ik}={new_s}"));
                     }
                 }
                 if let Some(old_inner) = old_inner {
@@ -406,7 +476,7 @@ fn splice_ini(
                 if let Some(idx) = find_ini_global_key(lines, key) {
                     lines[idx] = replace_ini_value(&lines[idx], &new_s);
                 } else {
-                    lines.push(format!("{key}={}", quote_if_needed(&new_s)));
+                    lines.push(format!("{key}={new_s}"));
                 }
             }
         }
@@ -428,7 +498,7 @@ fn parse_ini_assignment(line: &str) -> Option<(String, String)> {
     if key.is_empty() {
         return None;
     }
-    Some((key.to_string(), unquote(trimmed[eq + 1..].trim())))
+    Some((key.to_string(), trimmed[eq + 1..].trim().to_string()))
 }
 
 fn ini_line_section(lines: &[String], idx: usize) -> Option<String> {
@@ -508,17 +578,64 @@ fn replace_ini_value(line: &str, new_s: &str) -> String {
     let prefix = &line[..trimmed_start];
     let rest = line.trim_start();
     let eq = rest.find('=').unwrap_or(rest.len());
-    format!(
-        "{prefix}{}={}",
-        rest[..eq].trim_end(),
-        quote_if_needed(new_s)
-    )
+    format!("{prefix}{}={}", rest[..eq].trim_end(), new_s)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn properties_space_is_not_quoted_and_roundtrips() {
+        let orig = "# app config\napp.name=demo\n";
+        let old = parse_kv(orig, FileFormat::Properties).unwrap();
+        let mut new = old.clone();
+        new["app.title"] = json!("Hello World");
+        let text = serialize_kv_preserving(orig, &old, &new, FileFormat::Properties).unwrap();
+        assert!(
+            text.contains("app.title=Hello World\n"),
+            "must not wrap the value in quotes: {text:?}"
+        );
+        assert!(!text.contains("app.title=\""));
+        assert!(text.contains("# app config"));
+        let got = parse_kv(&text, FileFormat::Properties).unwrap();
+        assert_eq!(got["app.title"], json!("Hello World"));
+    }
+
+    #[test]
+    fn properties_literal_quotes_stay_in_the_value() {
+        let got = parse_kv("raw.q=\"quoted\"\n", FileFormat::Properties).unwrap();
+        assert_eq!(got["raw.q"], json!("\"quoted\""));
+    }
+
+    #[test]
+    fn ini_space_is_not_quoted_and_roundtrips() {
+        let orig = "; c\n[s]\nk=1\n";
+        let old = parse_kv(orig, FileFormat::Ini).unwrap();
+        let mut new = old.clone();
+        new["s"]["k"] = json!("x y");
+        let text = serialize_kv_preserving(orig, &old, &new, FileFormat::Ini).unwrap();
+        assert!(text.contains("k=x y\n"), "{text:?}");
+        assert!(!text.contains("k=\""));
+        assert!(text.contains("; c"));
+        let got = parse_kv(&text, FileFormat::Ini).unwrap();
+        assert_eq!(got["s"]["k"], json!("x y"));
+    }
+
+    #[test]
+    fn ini_literal_quotes_stay_in_the_value() {
+        let got = parse_kv("[s]\nk=\"x y\"\n", FileFormat::Ini).unwrap();
+        assert_eq!(got["s"]["k"], json!("\"x y\""));
+    }
+
+    #[test]
+    fn env_space_still_quotes_and_strips_on_read() {
+        let text = serialize_kv(&json!({"A": "x y"}), FileFormat::Env).unwrap();
+        assert!(text.contains("A=\"x y\""), "{text:?}");
+        let got = parse_kv(&text, FileFormat::Env).unwrap();
+        assert_eq!(got["A"], json!("x y"));
+    }
 
     #[test]
     fn env_parse_export_and_comment() {
