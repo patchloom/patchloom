@@ -59,6 +59,25 @@ fn clone_shares_tool_router() {
         svc.shares_tool_router_with(&cloned),
         "blocking() clones must not copy the ToolRouter HashMap"
     );
+    assert!(
+        svc.shares_io_gate_with(&cloned),
+        "clone must share the write lock"
+    );
+}
+
+/// HTTP builds one service per session. Those sessions must still share
+/// one write lock, or two clients can drop each other's edits (#2610).
+#[test]
+fn sharing_gate_is_one_lock_across_services() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let gate = std::sync::Arc::new(std::sync::RwLock::new(()));
+    let cwd = dir.path().to_path_buf();
+    let a = PatchloomService::new_sharing_gate(cwd.clone(), None, std::sync::Arc::clone(&gate))
+        .unwrap();
+    let b = PatchloomService::new_sharing_gate(cwd, None, gate).unwrap();
+    assert!(a.shares_io_gate_with(&b));
+    let isolated = PatchloomService::new(dir.path().to_path_buf(), None).unwrap();
+    assert!(!a.shares_io_gate_with(&isolated));
 }
 
 #[test]
@@ -128,66 +147,47 @@ mod basic {
             ),
             "search_files description drifted"
         );
-        #[cfg(feature = "ast")]
-        {
-            // All AST mutators must carry concurrent / execute_plan guidance.
-            for tool in [
-                "ast_rename",
-                "ast_replace",
-                "ast_replace_symbol",
-                "ast_delete_symbol",
-                "ast_rewrite_signature",
-                "ast_insert",
-                "ast_wrap",
-                "ast_reorder",
-                "ast_group",
-                "ast_move",
-                "ast_extract_to_file",
-                "ast_split",
-            ] {
-                let desc = descriptions.get(tool).copied().unwrap_or("");
-                assert!(
-                    desc.contains("execute_plan") && desc.contains("concurrent"),
-                    "{tool} must warn about concurrent writes / execute_plan (#1468): {desc}"
-                );
-            }
+        let by_name = tools
+            .iter()
+            .map(|t| (t.name.as_ref(), t))
+            .collect::<std::collections::BTreeMap<_, _>>();
+        for tool in [
+            "read_file",
+            "doc_get",
+            "search_files",
+            "list_files",
+            "git_status",
+            "explain_plan",
+            "tidy_check",
+            "undo_list",
+            "server_info",
+        ] {
+            let ann = by_name
+                .get(tool)
+                .and_then(|t| t.annotations.as_ref())
+                .unwrap_or_else(|| panic!("{tool} missing annotations"));
+            assert_eq!(ann.read_only_hint, Some(true), "{tool}");
+            assert_eq!(ann.open_world_hint, Some(false), "{tool}");
         }
-        // All registry write tools (and multi-file custom writers) must carry concurrent guidance.
         for tool in [
             "doc_set",
-            "doc_delete",
-            "doc_merge",
-            "doc_append",
-            "doc_prepend",
-            "doc_ensure",
-            "doc_delete_where",
-            "doc_update",
-            "doc_move",
-            "md_upsert_bullet",
-            "md_table_append",
-            "md_replace_section",
-            "md_insert_after_heading",
-            "md_insert_after_section",
-            "md_insert_before_heading",
-            "md_dedupe_headings",
-            "move_file",
-            "append_file",
-            "prepend_file",
-            "create_file",
-            "delete_file",
-            "fix_whitespace",
-            "batch_tidy",
-            "apply_patch",
             "replace_text",
-            "batch_replace",
-            "md_move_section",
-            "apply_fragment",
+            "append_file",
+            "execute_plan",
+            "apply_patch",
             "undo_restore",
         ] {
+            let ann = by_name
+                .get(tool)
+                .and_then(|t| t.annotations.as_ref())
+                .unwrap_or_else(|| panic!("{tool} missing annotations"));
+            assert_eq!(ann.read_only_hint, Some(false), "{tool}");
+            assert_eq!(ann.destructive_hint, Some(true), "{tool}");
+            assert_eq!(ann.open_world_hint, Some(false), "{tool}");
             let desc = descriptions.get(tool).copied().unwrap_or("");
             assert!(
-                desc.contains("concurrent") && desc.contains("execute_plan"),
-                "{tool} must warn about concurrent writes / execute_plan: {desc}"
+                !desc.contains("do NOT issue concurrent"),
+                "{tool} still carries the #1468 concurrency warning: {desc}"
             );
         }
         assert!(names.contains(&"git_status"), "missing git_status tool");
@@ -211,7 +211,7 @@ mod basic {
         assert_eq!(
             descriptions.get("replace_text"),
             Some(
-                &"Replace text in a file. Literal by default; set regex=true for regex. Options: nth, insert_before, insert_after, case_insensitive, multiline, if_exists, whole_line, range, word_boundary, fuzzy, min_fuzzy_score, allow_absent_old. Set word_boundary=true to match only whole words (prevents 'SetupFile' matching inside 'BenchSetupFile'). Set whole_line=true to replace entire lines containing a match (use with new=\"\" to delete lines). Fuzzy: when exact old is absent, refuse by default even if score ≥ min_fuzzy_score (#1758); set allow_absent_old=true only for deliberate approximate recovery. Prefer ast_rename for identifiers. IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity. Example: {\"path\": \"README.md\", \"old\": \"1.0.0\", \"new\": \"2.0.0\"}. Insert after anchor (mutually exclusive with new): {\"path\": \"src/main.rs\", \"old\": \"use std::io;\", \"insert_after\": \"use std::fs;\"}"
+                &"Replace text in a file. Literal by default; set regex=true for regex. Options: nth, insert_before, insert_after, case_insensitive, multiline, if_exists, whole_line, range, word_boundary, fuzzy, min_fuzzy_score, allow_absent_old. Set word_boundary=true to match only whole words (prevents 'SetupFile' matching inside 'BenchSetupFile'). Set whole_line=true to replace entire lines containing a match (use with new=\"\" to delete lines). Fuzzy: when exact old is absent, refuse by default even if score ≥ min_fuzzy_score (#1758); set allow_absent_old=true only for deliberate approximate recovery. Prefer ast_rename for identifiers. Example: {\"path\": \"README.md\", \"old\": \"1.0.0\", \"new\": \"2.0.0\"}. Insert after anchor (mutually exclusive with new): {\"path\": \"src/main.rs\", \"old\": \"use std::io;\", \"insert_after\": \"use std::fs;\"}"
             ),
             "replace_text description drifted"
         );

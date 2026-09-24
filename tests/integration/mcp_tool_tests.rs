@@ -1,5 +1,77 @@
 use super::*;
 
+/// Pipelined stdio `replace_text` calls must all land (#2610).
+/// A client that writes every request before reading responses used to
+/// get N success replies and one surviving edit.
+#[test]
+fn test_mcp_pipelined_replace_text_keeps_every_edit() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let n = 16;
+    let mut body = String::new();
+    for i in 0..n {
+        body.push_str(&format!("tok{i}\n"));
+    }
+    fs::write(dir.path().join("f.txt"), &body).unwrap();
+
+    let mut lines = Vec::new();
+    lines.push(
+        serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-06-18",
+                "capabilities": {},
+                "clientInfo": {"name": "t", "version": "1"}
+            }
+        })
+        .to_string(),
+    );
+    lines.push(r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#.to_string());
+    for i in 0..n {
+        lines.push(
+            serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": i + 1,
+                "method": "tools/call",
+                "params": {
+                    "name": "replace_text",
+                    "arguments": {
+                        "path": "f.txt",
+                        "old": format!("tok{i}\n"),
+                        "new": format!("DONE{i}\n")
+                    }
+                }
+            })
+            .to_string(),
+        );
+    }
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("mcp-server")
+        .current_dir(dir.path())
+        .write_stdin(lines.join("\n") + "\n")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "mcp-server exit {:?}\nstderr {}",
+        output.status,
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let text = fs::read_to_string(dir.path().join("f.txt")).unwrap();
+    for i in 0..n {
+        assert!(
+            text.contains(&format!("DONE{i}\n")),
+            "missing DONE{i} in {text}"
+        );
+    }
+    assert_eq!(text.matches("DONE").count(), n, "{text}");
+}
+
 #[tokio::test]
 async fn test_mcp_doc_set_round_trip() {
     if !has_mcp_support() {
