@@ -496,6 +496,10 @@ pub(crate) struct TxState<'a> {
     /// Plan-level `write_policy` (if any). Used by `tidy.fix` so defaults
     /// honor plan overrides before op-level fields (#1840 honesty).
     pub(crate) plan_write_policy: Option<&'a crate::write::WritePolicyOverride>,
+    /// `ReplaceOptions::for_agent` for every replace in this plan (#2614).
+    pub(crate) agent_preset: bool,
+    /// Relative path to expected sha256, checked before the file is used (#2617).
+    pub(crate) expected_sha256: Option<&'a std::collections::BTreeMap<String, String>>,
     /// Paths whose pending content already has write-policy fully applied by
     /// `tidy.fix` (op fields win). Cleared when a later non-tidy write updates
     /// the path (#1847).
@@ -570,6 +574,8 @@ impl TxStateFixture {
             structured: false,
             guard: None,
             plan_write_policy: None,
+            agent_preset: false,
+            expected_sha256: None,
             policy_finalized: &mut self.policy_finalized,
             #[cfg(feature = "ast")]
             ast_trees: std::mem::take(&mut self.ast_trees),
@@ -593,6 +599,7 @@ pub(crate) fn execute_read_op(
     let content = &tx.pending[&file_path].1;
     // Fast path: no line range requested, preserve raw content exactly and avoid
     // rebuilding lines. This matches the standalone `read` command contract.
+    let sha256 = crate::ops::read::sha256_hex(content.as_bytes());
     if lines.is_none() {
         let total_lines = crate::ops::file::text_lines(content).count();
         let start_line = if total_lines == 0 { 0 } else { 1 };
@@ -602,6 +609,7 @@ pub(crate) fn execute_read_op(
             start_line,
             end_line: total_lines,
             total_lines,
+            sha256,
         });
         return Ok(());
     }
@@ -618,6 +626,7 @@ pub(crate) fn execute_read_op(
         start_line: selected.start_line,
         end_line: selected.end_line,
         total_lines: selected.total_lines,
+        sha256,
     });
     Ok(())
 }
@@ -739,7 +748,55 @@ pub(crate) fn execute_doc_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
     }
 }
 
+fn enforce_expected_sha256(op: &Operation, tx: &TxState<'_>) -> anyhow::Result<()> {
+    let Some(expected) = tx.expected_sha256 else {
+        return Ok(());
+    };
+    if expected.is_empty() {
+        return Ok(());
+    }
+    for rel in op.declared_paths() {
+        let Some(want) = expected.get(&rel) else {
+            continue;
+        };
+        let want = want.trim();
+        if want.len() != 64 || !want.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err(crate::exit::InvalidInputError {
+                msg: format!("expected_sha256 for {rel} must be 64 hex characters"),
+            }
+            .into());
+        }
+        let abs = tx.cwd.join(&rel);
+        let got = if let Some((_, content)) = tx.pending.get(&abs) {
+            Some(content.clone())
+        } else if abs.is_file() {
+            match crate::files::load_text_strict(&abs, &rel) {
+                Ok(text) => Some(text),
+                Err(err) if crate::exit::is_io_not_found(&err) => None,
+                Err(err) => return Err(err),
+            }
+        } else {
+            None
+        };
+        let Some(got) = got else {
+            return Err(crate::exit::StaleContentError {
+                msg: format!("{rel}: expected sha256 {want} but the file is missing"),
+            }
+            .into());
+        };
+        if !crate::ops::read::hashes_match(&got, want) {
+            let actual = crate::ops::read::sha256_hex(got.as_bytes());
+            return Err(crate::exit::StaleContentError {
+                msg: format!("{rel}: sha256 {actual} does not match expected {want}"),
+            }
+            .into());
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usize> {
+    enforce_expected_sha256(op, tx)?;
     // Guard is enforced upfront in execute_plan_direct (for library plans) and via MCP pre-checks.
     // Single-op api::* uses ensure_contained inside write paths.
     // Per-op enforcement inside tx collect can be expanded later if needed.
@@ -813,8 +870,22 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
             return super::patch_op::execute_patch_op(op, tx);
         }
 
-        Operation::Read { path, lines } => {
-            execute_read_op(path, lines, tx)?;
+        Operation::Read {
+            path,
+            lines,
+            offset,
+            limit,
+            start_line,
+            end_line,
+        } => {
+            let lines = crate::ops::read::resolve_read_lines(
+                lines.as_deref(),
+                *offset,
+                *limit,
+                *start_line,
+                *end_line,
+            )?;
+            execute_read_op(path, &lines, tx)?;
         }
 
         Operation::Search { .. } => {
@@ -933,6 +1004,8 @@ pub(crate) fn execute_and_collect(
             structured,
             guard,
             plan_write_policy: plan.write_policy.as_ref(),
+            agent_preset: plan.agent_preset,
+            expected_sha256: plan.expected_sha256.as_ref(),
             policy_finalized: &mut policy_finalized,
             #[cfg(feature = "ast")]
             ast_trees,
@@ -1009,6 +1082,9 @@ pub(crate) fn execute_and_collect(
                         suggested_op: op,
                     }
                     .into());
+                }
+                if crate::exit::is_stale(&e) {
+                    return Err(crate::exit::StaleContentError { msg }.into());
                 }
                 if crate::exit::is_invalid_input(&e) {
                     return Err(crate::exit::InvalidInputError { msg }.into());

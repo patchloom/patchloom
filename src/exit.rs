@@ -85,6 +85,28 @@ impl std::fmt::Display for InvalidInputError {
 
 impl std::error::Error for InvalidInputError {}
 
+/// The file bytes do not match `expected_sha256` (#2617).
+///
+/// Exit [`FAILURE`] (1), JSON `error_kind: "stale"`. Nothing was written.
+#[derive(Debug)]
+pub struct StaleContentError {
+    pub msg: String,
+}
+
+impl std::fmt::Display for StaleContentError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.msg)
+    }
+}
+
+impl std::error::Error for StaleContentError {}
+
+/// Check whether an `anyhow::Error` chain contains a [`StaleContentError`].
+pub fn is_stale(err: &anyhow::Error) -> bool {
+    err.chain()
+        .any(|cause| cause.downcast_ref::<StaleContentError>().is_some())
+}
+
 /// Invalid input with a machine-stable alternate plan/CLI op for agents (#2133).
 ///
 /// Classifies as `error_kind: "invalid_input"` (same as [`InvalidInputError`])
@@ -616,6 +638,7 @@ pub fn error_kind_implies_not_applied(kind: &str) -> bool {
             | "parse_timeout"
             | "changes_detected"
             | "fuzzy_span_suspicious"
+            | "stale"
             | "rollback"
             | "rollback_failed"
     )
@@ -636,7 +659,9 @@ pub fn classify_dispatch_error(err: &anyhow::Error) -> (String, u8) {
 /// so new kinds cannot be dropped in one path and present in another.
 /// Returns `None` when the chain has no recognized typed kind.
 pub fn classify_typed_error(err: &anyhow::Error) -> Option<(&'static str, u8)> {
-    if is_no_match(err) {
+    if is_stale(err) {
+        Some(("stale", FAILURE))
+    } else if is_no_match(err) {
         Some(("no_matches", NO_MATCHES))
     } else if is_ambiguous(err) {
         Some(("ambiguous", AMBIGUOUS))
@@ -1071,6 +1096,7 @@ mod tests {
         assert!(error_kind_implies_not_applied("binary"));
         assert!(error_kind_implies_not_applied("invalid_encoding"));
         assert!(error_kind_implies_not_applied("fuzzy_span_suspicious"));
+        assert!(error_kind_implies_not_applied("stale"));
         assert!(error_kind_implies_not_applied("rollback"));
         assert!(error_kind_implies_not_applied("rollback_failed"));
         assert!(!error_kind_implies_not_applied("format_failed"));

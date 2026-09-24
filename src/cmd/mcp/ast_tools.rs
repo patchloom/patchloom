@@ -165,7 +165,7 @@ pub(super) fn handle_ast_list(
     if results.is_empty() {
         return no_results("No symbols found.");
     }
-    let json = serde_json::to_string_pretty(&results)
+    let json = serde_json::to_string(&results)
         .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
     Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
 }
@@ -246,8 +246,8 @@ pub(super) fn handle_ast_read(
         "signature": sym.signature,
         "content": content,
     });
-    let json = serde_json::to_string_pretty(&obj)
-        .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+    let json =
+        serde_json::to_string(&obj).map_err(|e| McpError::internal_error(format!("{e}"), None))?;
     Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
 }
 
@@ -537,7 +537,7 @@ pub(super) fn handle_ast_validate(
     let any_invalid = results
         .iter()
         .any(|r| r.get("valid") == Some(&serde_json::json!(false)));
-    let json = serde_json::to_string_pretty(&results)
+    let json = serde_json::to_string(&results)
         .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
     // CLI exits 1 when invalid; hosts that only check isError must see failure.
     if any_invalid {
@@ -661,7 +661,7 @@ pub(super) fn handle_ast_search(
                         })
                     })
                     .collect();
-                let json = serde_json::to_string_pretty(&all_matches)
+                let json = serde_json::to_string(&all_matches)
                     .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
                 return Ok(CallToolResult::success(vec![ContentBlock::text(json)]));
             }
@@ -730,7 +730,7 @@ pub(super) fn handle_ast_search(
         }
         return no_results("No matches found.");
     }
-    let json = serde_json::to_string_pretty(&all_matches)
+    let json = serde_json::to_string(&all_matches)
         .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
     Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
 }
@@ -837,8 +837,8 @@ pub(super) fn handle_ast_refs(
         "references": all_refs,
         "count": all_refs.len(),
     });
-    let json = serde_json::to_string_pretty(&obj)
-        .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+    let json =
+        serde_json::to_string(&obj).map_err(|e| McpError::internal_error(format!("{e}"), None))?;
     Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
 }
 
@@ -903,7 +903,7 @@ pub(super) fn handle_ast_deps(
             "file": display,
             "imports": imports,
         })];
-        let json = serde_json::to_string_pretty(&results)
+        let json = serde_json::to_string(&results)
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
         return Ok(CallToolResult::success(vec![ContentBlock::text(json)]));
     }
@@ -1028,7 +1028,7 @@ pub(super) fn handle_ast_deps(
         }
         return no_results("No imports found.");
     }
-    let json = serde_json::to_string_pretty(&results)
+    let json = serde_json::to_string(&results)
         .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
     Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
 }
@@ -1100,7 +1100,7 @@ pub(super) fn handle_ast_map(
         return no_results("No symbols found.");
     }
 
-    let json = serde_json::to_string_pretty(&entries)
+    let json = serde_json::to_string(&entries)
         .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
     Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
 }
@@ -1164,8 +1164,8 @@ pub(super) fn handle_ast_diff(
         "to": p.to.as_deref().unwrap_or("working tree"),
         "changes": changes,
     });
-    let json = serde_json::to_string_pretty(&obj)
-        .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+    let json =
+        serde_json::to_string(&obj).map_err(|e| McpError::internal_error(format!("{e}"), None))?;
     Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
 }
 
@@ -1231,8 +1231,8 @@ pub(super) fn handle_ast_impact(
         "impact": nodes,
         "total_count": nodes.len(),
     });
-    let json = serde_json::to_string_pretty(&obj)
-        .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+    let json =
+        serde_json::to_string(&obj).map_err(|e| McpError::internal_error(format!("{e}"), None))?;
     Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
 }
 
@@ -1344,7 +1344,7 @@ pub(super) fn handle_ast_imports(
             })).collect::<Vec<_>>(),
             "count": imports.len(),
         });
-        let json = serde_json::to_string_pretty(&obj)
+        let json = serde_json::to_string(&obj)
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
         return Ok(CallToolResult::success(vec![ContentBlock::text(json)]));
     }
@@ -1635,7 +1635,7 @@ impl Point {
 
         let result = handle_ast_validate(&svc, params).unwrap();
         let text = extract_text(&result);
-        assert!(text.contains("\"valid\": true"));
+        assert!(text.contains("\"valid\":true"), "{text}");
     }
 
     #[test]
@@ -1655,7 +1655,7 @@ impl Point {
             "invalid syntax must set isError so agents do not treat as clean"
         );
         let text = extract_text(&result);
-        assert!(text.contains("\"valid\": false"));
+        assert!(text.contains("\"valid\":false"), "{text}");
     }
 
     #[test]
@@ -2413,7 +2413,7 @@ impl Point {
 
         let result = handle_ast_rename(&svc, params).unwrap();
         let text = extract_text(&result);
-        assert!(text.contains("\"ok\": true"));
+        assert!(text.contains("\"ok\":true"), "{text}");
 
         let content = std::fs::read_to_string(dir.path().join("rename.rs")).unwrap();
         assert!(content.contains("salute"));

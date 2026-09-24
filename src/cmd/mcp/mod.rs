@@ -31,6 +31,7 @@ use rmcp::model::{
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
+use crate::cmd::mcp::registry::inject_write_preconditions;
 use crate::containment::PathGuard;
 use crate::exit;
 use crate::plan::{Operation, Plan};
@@ -251,6 +252,9 @@ impl PatchloomService {
             let mut schema = crate::schema::operation_variant_schema(meta.op_name)?;
             if meta.has_strict {
                 schema = inject_strict_into_schema(schema);
+            }
+            if meta.tool_name != "read_file" {
+                inject_write_preconditions(&mut schema);
             }
             // Collect the set of allowed field names from the schema properties
             // so handle_simple_op can reject unknown fields (deny_unknown_fields).
@@ -481,11 +485,20 @@ impl PatchloomService {
         ops: Vec<Operation>,
         strict: Option<bool>,
     ) -> Result<CallToolResult, McpError> {
-        execute_plan_validated(
-            make_plan_strict(ops, strict),
-            self.cwd(),
-            Some(&self.path_guard),
-        )
+        self.run_ops_ex(ops, strict, false, None)
+    }
+
+    fn run_ops_ex(
+        &self,
+        ops: Vec<Operation>,
+        strict: Option<bool>,
+        agent_preset: bool,
+        expected_sha256: Option<std::collections::BTreeMap<String, String>>,
+    ) -> Result<CallToolResult, McpError> {
+        let mut plan = make_plan_strict(ops, strict);
+        plan.agent_preset = agent_preset;
+        plan.expected_sha256 = expected_sha256;
+        execute_plan_validated(plan, self.cwd(), Some(&self.path_guard))
     }
 
     /// Helper for single-op case to reduce vec! boilerplate in handlers.
@@ -622,8 +635,7 @@ fn doc_readonly(action: &crate::cmd::doc::DocAction) -> Result<CallToolResult, M
             Err(e) => {
                 if crate::exit::classify_typed_error(&e).is_some() {
                     let (payload, _code) = crate::exit::structured_error_payload(&e);
-                    let text =
-                        serde_json::to_string_pretty(&payload).unwrap_or_else(|_| e.to_string());
+                    let text = serde_json::to_string(&payload).unwrap_or_else(|_| e.to_string());
                     return Ok(CallToolResult::error(vec![ContentBlock::text(text)]));
                 }
                 return Err(McpError::internal_error(format!("{e}"), None));
@@ -659,7 +671,7 @@ fn peel_doc_query_success_value(output: &str) -> String {
     let Some(value) = v.get("value") else {
         return output.to_string();
     };
-    match serde_json::to_string_pretty(value) {
+    match serde_json::to_string(value) {
         Ok(s) => s,
         Err(_) => output.to_string(),
     }
@@ -676,6 +688,8 @@ fn make_plan_strict(operations: Vec<Operation>, strict: Option<bool>) -> Plan {
         validate: None,
         verify: None,
         for_each: None,
+        agent_preset: false,
+        expected_sha256: None,
     }
 }
 

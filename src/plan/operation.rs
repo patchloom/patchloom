@@ -345,8 +345,20 @@ pub enum Operation {
     #[serde(rename = "read")]
     Read {
         path: String,
-        /// Optional line range (e.g., "10:25").
+        /// Optional line range (e.g., "10:25"). 1-based inclusive.
         lines: Option<String>,
+        /// 1-based first line. Same window as Claude Code / Cursor `offset`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        offset: Option<u64>,
+        /// How many lines to return, starting at `offset` (or line 1).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        limit: Option<u64>,
+        /// 1-based inclusive start. Alias of the left side of `lines`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        start_line: Option<u64>,
+        /// 1-based inclusive end. Alias of the right side of `lines`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        end_line: Option<u64>,
     },
     #[serde(rename = "md.lint_agents")]
     MdLintAgents { path: String },

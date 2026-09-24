@@ -631,6 +631,10 @@ mod basic {
                 Operation::Read {
                     path: "f".into(),
                     lines: None,
+                    offset: None,
+                    limit: None,
+                    start_line: None,
+                    end_line: None,
                 },
             ),
         ];

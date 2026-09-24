@@ -126,6 +126,8 @@ fn has_lifecycle_steps_none() {
         strict: None,
         write_policy: None,
         for_each: None,
+        agent_preset: false,
+        expected_sha256: None,
     };
     assert!(!plan.has_lifecycle_steps());
 }
@@ -142,6 +144,8 @@ fn has_lifecycle_steps_empty_vecs() {
         strict: None,
         write_policy: None,
         for_each: None,
+        agent_preset: false,
+        expected_sha256: None,
     };
     assert!(!plan.has_lifecycle_steps());
 }
@@ -161,6 +165,8 @@ fn has_lifecycle_steps_with_format() {
         strict: None,
         write_policy: None,
         for_each: None,
+        agent_preset: false,
+        expected_sha256: None,
     };
     assert!(plan.has_lifecycle_steps());
 }
@@ -181,6 +187,8 @@ fn has_lifecycle_steps_with_validate() {
         strict: None,
         write_policy: None,
         for_each: None,
+        agent_preset: false,
+        expected_sha256: None,
     };
     assert!(plan.has_lifecycle_steps());
 }

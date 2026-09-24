@@ -28,6 +28,8 @@ struct ReadOutput {
     end_line: usize,
     total_lines: usize,
     content: String,
+    /// SHA-256 of the whole file, lowercase hex. Unchanged when `lines` slices.
+    sha256: String,
 }
 
 pub(crate) use crate::ops::read::{LineRange, parse_line_range, select_lines};
@@ -110,6 +112,7 @@ fn read_one_file(path: &str, lines: Option<LineRange>) -> Result<ReadOutput, Rea
     };
 
     // Fast path: no line range requested, skip split/join (#169).
+    let sha256 = crate::ops::read::sha256_hex(content.as_bytes());
     if lines.is_none() {
         let total_lines = crate::ops::file::text_lines(&content).count();
         let start_line = if total_lines == 0 { 0 } else { 1 };
@@ -120,6 +123,7 @@ fn read_one_file(path: &str, lines: Option<LineRange>) -> Result<ReadOutput, Rea
             end_line: total_lines,
             total_lines,
             content,
+            sha256,
         });
     }
 
@@ -145,6 +149,7 @@ fn read_one_file(path: &str, lines: Option<LineRange>) -> Result<ReadOutput, Rea
         end_line: selected.end_line,
         total_lines: selected.total_lines,
         content: selected.content,
+        sha256,
     })
 }
 

@@ -189,6 +189,8 @@ pub struct TxReadResult {
     pub start_line: usize,
     pub end_line: usize,
     pub total_lines: usize,
+    /// SHA-256 of the whole file bytes, lowercase hex (#2617).
+    pub sha256: String,
 }
 
 /// A lint result in the tx output.

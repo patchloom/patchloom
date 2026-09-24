@@ -85,6 +85,13 @@ pub(crate) struct ReplaceParams {
     /// Roll back all writes when format/validate lifecycle steps fail.
     #[serde(default = "default_strict_true")]
     pub strict: bool,
+    /// Apply the agent replace preset for this call (unique, require_change,
+    /// fuzzy floor 0.90, allow_absent_old false). Off unless set (#2614).
+    #[serde(default)]
+    pub agent_preset: bool,
+    /// SHA-256 hex of the file's current bytes. Mismatch is `error_kind: stale`.
+    #[serde(default)]
+    pub expected_sha256: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -878,6 +885,9 @@ pub(crate) struct ExecutePlanParams {
     /// plan.format/validate (lifecycle shells are not run from submitted plans).
     #[serde(default)]
     pub strict: Option<bool>,
+    /// When true, replace ops in this plan use the agent preset (#2614).
+    #[serde(default)]
+    pub agent_preset: bool,
 }
 
 /// Apply MCP top-level `strict` only when the caller sent it.

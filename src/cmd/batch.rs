@@ -1840,6 +1840,8 @@ pub fn run(args: BatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         validate: None,
         verify: None,
         for_each: None,
+        agent_preset: false,
+        expected_sha256: None,
     };
     // Write flags are already merged into global by dispatch before run().
     let _ = args.write;

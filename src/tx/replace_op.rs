@@ -148,21 +148,37 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
         range,
         before_context,
         after_context,
-        unique,
-        require_change,
+        unique: op_unique,
+        require_change: op_require_change,
         command_position,
-        fuzzy,
-        min_fuzzy_score,
-        allow_absent_old,
+        fuzzy: op_fuzzy,
+        min_fuzzy_score: op_min_fuzzy,
+        allow_absent_old: op_allow_absent,
         ..
     } = op
     else {
         anyhow::bail!("execute_replace_op called with non-Replace operation")
     };
-    let allow_absent_old = *allow_absent_old;
+    let allow_absent_old = if tx.agent_preset {
+        false
+    } else {
+        *op_allow_absent
+    };
+    let unique = if tx.agent_preset { true } else { *op_unique };
+    let require_change = if tx.agent_preset {
+        true
+    } else {
+        *op_require_change
+    };
+    let fuzzy = if tx.agent_preset { true } else { *op_fuzzy };
+    let min_fuzzy_score = if tx.agent_preset {
+        Some(crate::api::AGENT_MIN_FUZZY_SCORE)
+    } else {
+        *op_min_fuzzy
+    };
     let regex_mode = *regex_mode;
     if let Some(min) = min_fuzzy_score
-        && (!(0.0..=1.0).contains(min) || min.is_nan())
+        && (!(0.0..=1.0).contains(&min) || min.is_nan())
     {
         return Err(crate::exit::InvalidInputError {
             msg: format!(
@@ -198,7 +214,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                 insert_after: insert_after.is_some(),
                 before_context: before_context.is_some(),
                 after_context: after_context.is_some(),
-                fuzzy: *fuzzy,
+                fuzzy,
             },
         )
     {
@@ -282,7 +298,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
         } else {
             replace_content(content, old, &replacement, compiled_re.as_ref(), *nth)
         };
-        if *unique && match_count > 1 {
+        if unique && match_count > 1 {
             return Err(crate::exit::AmbiguousError {
                 msg: format!(
                     "ambiguous match: pattern {:?} matches {} times in {}; tighten the pattern/anchor, use --nth (replace), unique: false (plan/MCP), or --allow-non-unique (apply-fragment CLI)",
@@ -360,7 +376,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                 ),
             }
             .into())
-        } else if !regex_mode && (*fuzzy || before_context.is_some() || after_context.is_some()) {
+        } else if !regex_mode && (fuzzy || before_context.is_some() || after_context.is_some()) {
             // Tier 3: fuzzy and/or context fallback when exact match fails (#1668).
             match crate::fallback::resolve_with_fallback_skip_exact(
                 content,
@@ -378,7 +394,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                     // Reject weak fuzzy matches when host set a floor (#1687).
                     if mode == MatchMode::Fuzzy
                         && let Some(min) = min_fuzzy_score
-                        && crate::fallback::fuzzy_fails_min_floor(score, *min)
+                        && crate::fallback::fuzzy_fails_min_floor(score, min)
                     {
                         let actual = score
                             .map(|s| format!("{s:.3}"))
@@ -399,7 +415,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                             Some("below_min_fuzzy_score"),
                         );
                     } else if crate::fallback::should_refuse_fuzzy_absent_old(
-                        *fuzzy,
+                        fuzzy,
                         mode == MatchMode::Fuzzy,
                         allow_absent_old,
                     ) {
@@ -475,7 +491,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                     tx.replace_hint = Some(edit_error.message.clone());
                 }
             }
-            if *require_change && !if_exists {
+            if require_change && !if_exists {
                 let msg = tx
                     .replace_hint
                     .clone()
@@ -501,7 +517,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                     ));
                 }
             }
-            if *require_change && !if_exists {
+            if require_change && !if_exists {
                 let msg = tx
                     .replace_hint
                     .clone()
@@ -651,7 +667,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
             } else {
                 replace_content(&content, old, &replacement, compiled_re.as_ref(), *nth)
             };
-            if *unique && match_count > 1 {
+            if unique && match_count > 1 {
                 let rel = file_path
                     .strip_prefix(tx.cwd)
                     .unwrap_or(&file_path)
@@ -736,7 +752,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                     ),
                 }
                 .into());
-            } else if !regex_mode && (*fuzzy || before_context.is_some() || after_context.is_some())
+            } else if !regex_mode && (fuzzy || before_context.is_some() || after_context.is_some())
             {
                 // Fuzzy/context fallback for glob paths (parity with #1668 path arm).
                 match crate::fallback::resolve_with_fallback_skip_exact(
@@ -754,7 +770,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                         let score = anchor.score.or(default_score);
                         if mode == MatchMode::Fuzzy
                             && let Some(min) = min_fuzzy_score
-                            && crate::fallback::fuzzy_fails_min_floor(score, *min)
+                            && crate::fallback::fuzzy_fails_min_floor(score, min)
                         {
                             // Parity with single-path arm (#1745 / AI findings):
                             // surface the floor rejection so callers can diagnose
@@ -779,7 +795,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                             continue;
                         }
                         if crate::fallback::should_refuse_fuzzy_absent_old(
-                            *fuzzy,
+                            fuzzy,
                             mode == MatchMode::Fuzzy,
                             allow_absent_old,
                         ) {
@@ -877,7 +893,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                 }
             }
         }
-        if total_matches == 0 && *require_change && !if_exists {
+        if total_matches == 0 && require_change && !if_exists {
             let msg = tx
                 .replace_hint
                 .clone()

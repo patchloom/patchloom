@@ -120,15 +120,18 @@ fn map_undo_mcp_err(e: anyhow::Error) -> McpError {
 }
 
 fn json_tool_result(value: &serde_json::Value) -> Result<CallToolResult, McpError> {
-    let json = serde_json::to_string_pretty(value)
-        .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+    let json = mcp_json(value).map_err(|e| McpError::internal_error(format!("{e}"), None))?;
     Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
 }
 
 fn json_tool_error(value: &serde_json::Value) -> Result<CallToolResult, McpError> {
-    let json = serde_json::to_string_pretty(value)
-        .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+    let json = mcp_json(value).map_err(|e| McpError::internal_error(format!("{e}"), None))?;
     Ok(CallToolResult::error(vec![ContentBlock::text(json)]))
+}
+
+/// Compact JSON for tool results. Same fields as before, no extra whitespace (#2618).
+pub(super) fn mcp_json(value: &serde_json::Value) -> Result<String, serde_json::Error> {
+    serde_json::to_string(value)
 }
 
 fn undo_no_matches_envelope(msg: &str) -> Result<CallToolResult, McpError> {
@@ -633,6 +636,7 @@ impl PatchloomService {
             // Match honesty comes from engine TxOutput (replace_match_meta), not a
             // second replace_in_content pass. Re-deriving with range:None could
             // overwrite correct engine mode after ranged/fuzzy applies.
+            let path_for_hash = p.path.clone();
             let replace_op = Operation::Replace {
                 glob: None,
                 path: Some(p.path),
@@ -657,7 +661,13 @@ impl PatchloomService {
                 min_fuzzy_score: p.min_fuzzy_score,
                 allow_absent_old: p.allow_absent_old,
             };
-            let mut tool_result = svc.run_one_op(replace_op, Some(p.strict))?;
+            let expected = p.expected_sha256.map(|hash| {
+                let mut map = std::collections::BTreeMap::new();
+                map.insert(path_for_hash, hash);
+                map
+            });
+            let mut tool_result =
+                svc.run_ops_ex(vec![replace_op], Some(p.strict), p.agent_preset, expected)?;
 
             // Append validation warnings to the response.
             if !validation_warnings.is_empty() {
@@ -749,7 +759,7 @@ impl PatchloomService {
             if !issues.is_empty() {
                 envelope["error_kind"] = serde_json::json!("changes_detected");
             }
-            let json = serde_json::to_string_pretty(&envelope)
+            let json = serde_json::to_string(&envelope)
                 .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
             Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
         })
@@ -1070,6 +1080,9 @@ impl PatchloomService {
             // Omitted leaves plan.strict unchanged so {"plan":{"strict":false}}
             // is not overwritten by a default true.
             apply_execute_plan_strict_override(&mut plan, p.strict);
+            if p.agent_preset {
+                plan.agent_preset = true;
+            }
 
             // Strip lifecycle steps to prevent arbitrary command execution.
             // Format/validate commands run unrestricted shell processes,
@@ -1147,7 +1160,7 @@ impl PatchloomService {
                     McpError::internal_error(msg, None)
                 }
             })?;
-            let json = serde_json::to_string_pretty(&report)
+            let json = serde_json::to_string(&report)
                 .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
             Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
         })
@@ -1171,7 +1184,7 @@ impl PatchloomService {
                     McpError::internal_error(format!("{e}"), None)
                 }
             })?;
-            let json = serde_json::to_string_pretty(&status)
+            let json = serde_json::to_string(&status)
                 .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
             // Always tool success (isError=false); agents branch on ok /
             // total_changes / error_kind like md_lint dirty envelopes.
@@ -1209,7 +1222,7 @@ impl PatchloomService {
                 crate::cmd::agent_packaging::server_info_full_recommendation(tool_count),
             );
         }
-        let json = serde_json::to_string_pretty(&info)
+        let json = serde_json::to_string(&info)
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
         Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
     }
@@ -1346,7 +1359,7 @@ impl PatchloomService {
                     "items": [],
                     "warnings": warnings,
                 });
-                let json = serde_json::to_string_pretty(&payload)
+                let json = serde_json::to_string(&payload)
                     .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
                 return Ok(CallToolResult::success(vec![ContentBlock::text(json)]));
             }
@@ -1360,7 +1373,7 @@ impl PatchloomService {
                 })
                 .collect();
             let output = crate::cmd::undo::UndoListOutput { items, warnings };
-            let json = serde_json::to_string_pretty(&output)
+            let json = serde_json::to_string(&output)
                 .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
             Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
         })
@@ -1420,7 +1433,7 @@ impl PatchloomService {
                     file_count: entries.len(),
                     entries,
                 };
-                let json = serde_json::to_string_pretty(&output)
+                let json = serde_json::to_string(&output)
                     .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
                 return Ok(CallToolResult::success(vec![ContentBlock::text(json)]));
             }
@@ -1459,7 +1472,7 @@ impl PatchloomService {
                 "project_root": crate::cmd::undo::display_root(cwd, &backup_root),
                 "file_count": restored,
             });
-            let json = serde_json::to_string_pretty(&payload)
+            let json = serde_json::to_string(&payload)
                 .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
             Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
         })
