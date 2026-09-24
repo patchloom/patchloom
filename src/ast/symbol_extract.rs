@@ -30,12 +30,31 @@ pub(crate) fn visit_node(
     depth: usize,
     symbols: &mut Vec<SymbolDef>,
 ) {
+    let line_index = crate::ops::file::LineIndex::new(source);
+    visit_node_indexed(cursor, source, &line_index, language, depth, symbols);
+}
+
+fn visit_node_indexed(
+    cursor: &mut tree_sitter_lib::TreeCursor,
+    source: &str,
+    line_index: &crate::ops::file::LineIndex,
+    language: Language,
+    depth: usize,
+    symbols: &mut Vec<SymbolDef>,
+) {
     let node = cursor.node();
-    if let Some(mut sym) = try_extract_symbol(node, source, language, depth) {
+    if let Some(mut sym) = try_extract_symbol(node, source, line_index, language, depth) {
         // Collect children inside this symbol's scope
         if cursor.goto_first_child() {
             loop {
-                visit_node(cursor, source, language, depth + 1, &mut sym.children);
+                visit_node_indexed(
+                    cursor,
+                    source,
+                    line_index,
+                    language,
+                    depth + 1,
+                    &mut sym.children,
+                );
                 if !cursor.goto_next_sibling() {
                     break;
                 }
@@ -45,7 +64,7 @@ pub(crate) fn visit_node(
         symbols.push(sym);
     } else if cursor.goto_first_child() {
         loop {
-            visit_node(cursor, source, language, depth, symbols);
+            visit_node_indexed(cursor, source, line_index, language, depth, symbols);
             if !cursor.goto_next_sibling() {
                 break;
             }
@@ -57,6 +76,7 @@ pub(crate) fn visit_node(
 fn try_extract_symbol(
     node: tree_sitter_lib::Node,
     source: &str,
+    line_index: &crate::ops::file::LineIndex,
     language: Language,
     depth: usize,
 ) -> Option<SymbolDef> {
@@ -72,7 +92,10 @@ fn try_extract_symbol(
         _ => extract_generic(node, source)?,
     };
 
-    let (start_line, end_line) = node_source_lines(source, node);
+    let (start_line, end_line) = (
+        line_index.line_index(node.start_byte()) + 1,
+        line_index.line_index(node.end_byte().saturating_sub(1)) + 1,
+    );
     let signature = node_signature(node, source);
 
     Some(SymbolDef {

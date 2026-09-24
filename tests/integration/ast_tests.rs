@@ -22,10 +22,19 @@ fn test_ast_read_broken_pipe_is_not_a_panic() {
 }
 
 /// `ast map | head` must not panic (ranked tree dump).
+/// A generated file is enough: stdout is closed before the first write,
+/// so EPIPE does not depend on walking this repo's `src/`.
 #[test]
 #[cfg(feature = "ast")]
 fn test_ast_map_broken_pipe_is_not_a_panic() {
-    assert_cli_broken_pipe_is_not_a_panic(&["ast", "map", "src"]);
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("big.rs");
+    fs::write(
+        &path,
+        "fn alpha() {}\nfn beta() {}\nfn gamma() { let n = 1; let _ = n; }\n",
+    )
+    .unwrap();
+    assert_cli_broken_pipe_is_not_a_panic(&["ast", "map", dir.path().to_str().unwrap()]);
 }
 
 #[test]
