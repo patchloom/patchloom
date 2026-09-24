@@ -69,9 +69,10 @@ pub struct Plan {
     /// Omitted or false leaves each op's own fields alone (#2614).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub agent_preset: bool,
-    /// Path (as written in the plan) to lowercase sha256 hex of that file's
-    /// current bytes. Checked before the op reads the file. Mismatch is
-    /// `error_kind: stale` and nothing is written (#2617).
+    /// Keys are paths as written, mapped to lowercase sha256 hex of that
+    /// file's current bytes. Glob-expanded files and directory tidy children
+    /// are checked when the key is that file; mismatch is `error_kind: stale`
+    /// and nothing is written (#2617).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expected_sha256: Option<std::collections::BTreeMap<String, String>>,
 }

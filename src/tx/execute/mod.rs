@@ -748,55 +748,53 @@ pub(crate) fn execute_doc_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
     }
 }
 
-fn enforce_expected_sha256(op: &Operation, tx: &TxState<'_>) -> anyhow::Result<()> {
+/// Hash-check one relative path. No map, or no entry for `rel`, is a skip.
+pub(crate) fn enforce_expected_sha256(rel: &str, tx: &TxState<'_>) -> anyhow::Result<()> {
     let Some(expected) = tx.expected_sha256 else {
         return Ok(());
     };
-    if expected.is_empty() {
+    let Some(want) = expected.get(rel) else {
         return Ok(());
+    };
+    let want = want.trim();
+    if want.len() != 64 || !want.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(crate::exit::InvalidInputError {
+            msg: format!("expected_sha256 for {rel} must be 64 hex characters"),
+        }
+        .into());
     }
-    for rel in op.declared_paths() {
-        let Some(want) = expected.get(&rel) else {
-            continue;
-        };
-        let want = want.trim();
-        if want.len() != 64 || !want.bytes().all(|b| b.is_ascii_hexdigit()) {
-            return Err(crate::exit::InvalidInputError {
-                msg: format!("expected_sha256 for {rel} must be 64 hex characters"),
-            }
-            .into());
+    let abs = tx.cwd.join(rel);
+    let got = if let Some((_, content)) = tx.pending.get(&abs) {
+        Some(content.clone())
+    } else if abs.is_file() {
+        match crate::files::load_text_strict(&abs, rel) {
+            Ok(text) => Some(text),
+            Err(err) if crate::exit::is_io_not_found(&err) => None,
+            Err(err) => return Err(err),
         }
-        let abs = tx.cwd.join(&rel);
-        let got = if let Some((_, content)) = tx.pending.get(&abs) {
-            Some(content.clone())
-        } else if abs.is_file() {
-            match crate::files::load_text_strict(&abs, &rel) {
-                Ok(text) => Some(text),
-                Err(err) if crate::exit::is_io_not_found(&err) => None,
-                Err(err) => return Err(err),
-            }
-        } else {
-            None
-        };
-        let Some(got) = got else {
-            return Err(crate::exit::StaleContentError {
-                msg: format!("{rel}: expected sha256 {want} but the file is missing"),
-            }
-            .into());
-        };
-        if !crate::ops::read::hashes_match(&got, want) {
-            let actual = crate::ops::read::sha256_hex(got.as_bytes());
-            return Err(crate::exit::StaleContentError {
-                msg: format!("{rel}: sha256 {actual} does not match expected {want}"),
-            }
-            .into());
+    } else {
+        None
+    };
+    let Some(got) = got else {
+        return Err(crate::exit::StaleContentError {
+            msg: format!("{rel}: expected sha256 {want} but the file is missing"),
         }
+        .into());
+    };
+    if !crate::ops::read::hashes_match(&got, want) {
+        let actual = crate::ops::read::sha256_hex(got.as_bytes());
+        return Err(crate::exit::StaleContentError {
+            msg: format!("{rel}: sha256 {actual} does not match expected {want}"),
+        }
+        .into());
     }
     Ok(())
 }
 
 pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usize> {
-    enforce_expected_sha256(op, tx)?;
+    for rel in op.declared_paths() {
+        enforce_expected_sha256(&rel, tx)?;
+    }
     // Guard is enforced upfront in execute_plan_direct (for library plans) and via MCP pre-checks.
     // Single-op api::* uses ensure_contained inside write paths.
     // Per-op enforcement inside tx collect can be expanded later if needed.
