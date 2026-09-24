@@ -639,6 +639,8 @@ mod tests {
             validate: None,
             verify: None,
             for_each: None,
+            agent_preset: false,
+            expected_sha256: None,
         };
 
         let affected = affected_file_paths(&plan, dir.path());
@@ -774,6 +776,8 @@ mod tests {
             validate: None,
             verify: None,
             for_each: None,
+            agent_preset: false,
+            expected_sha256: None,
         };
         let affected = affected_file_paths(&plan, dir.path());
         let names: Vec<String> = affected
@@ -815,6 +819,8 @@ mod tests {
                 attr: None,
             }]),
             for_each: None,
+            agent_preset: false,
+            expected_sha256: None,
         };
         let report = crate::tx::execute_plan_direct(plan, dir.path(), None).expect("plan ok");
         assert!(

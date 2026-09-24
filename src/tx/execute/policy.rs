@@ -71,6 +71,10 @@ mod tests {
             operations: vec![Operation::Read {
                 path: "f.txt".into(),
                 lines: None,
+                offset: None,
+                limit: None,
+                start_line: None,
+                end_line: None,
             }],
             write_policy: Some(ov),
             strict: None,
@@ -79,6 +83,8 @@ mod tests {
             verify: None,
             cwd: None,
             for_each: None,
+            agent_preset: false,
+            expected_sha256: None,
         }
     }
 

@@ -380,6 +380,8 @@ fn execute_plan_inner(
         strict: None,
         write_policy: None,
         for_each: None,
+        agent_preset: false,
+        expected_sha256: None,
     };
 
     let cwd = options.cwd().to_path_buf();

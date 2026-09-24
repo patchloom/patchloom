@@ -1134,6 +1134,22 @@ Use these when newline and whitespace correctness is the main concern.
 - **MCP:** Do not set `for_each` together with `plan.cwd` (rejected). Use workspace-relative `{path}` templates without `cwd`.
 - **Failure behavior:** A zero-match glob is `no_matches` (exit 3 / `EditErrorKind::NoMatch`), not a successful empty apply. Combining `plan.cwd` with `for_each` is `invalid_input`. A glob (or exclude glob) that globset cannot parse, and a `filter` other than `has_symbol(NAME)`, are `invalid_input` (exit 1), not `parse_error` (exit 4). If any expanded operation fails, the entire batch rolls back atomically.
 
+<!-- ref:tx-field:agent_preset -->
+### `agent_preset`
+
+- **What it does:** When true, every `replace` in the plan uses the library agent preset: `unique`, `require_change`, fuzzy matching with floor 0.90, and `allow_absent_old` false. Those four fields on the op are ignored for that run.
+- **Use when:** An agent wants one switch instead of setting the four fields on every replace. Leave it off for replace-all or a looser fuzzy floor.
+- **Field value:** Boolean. Omitted is false.
+- **Failure behavior:** Same as the preset fields themselves (`ambiguous`, `no_matches`, `fuzzy_span_suspicious`). A zero-match replace fails closed.
+
+<!-- ref:tx-field:expected_sha256 -->
+### `expected_sha256`
+
+- **What it does:** Map of plan path to the sha256 hex of that file's current text. The engine checks it before the op uses the file. `read` also returns `sha256` of the whole file, including when `lines` or `offset`/`limit` returns a slice.
+- **Use when:** A write must apply only if the file is still the version that was read. Same idea as HTTP `If-Match` and a whole-file checksum on a line edit.
+- **Field value:** Object of path to 64 hex characters. Omitted skips the check.
+- **Failure behavior:** A mismatch or a missing file is `error_kind: stale` (exit 1) and nothing is written. A hash that is not 64 hex characters is `invalid_input`.
+
 ### Transaction operations
 
 The operations below are the building blocks inside `operations`.

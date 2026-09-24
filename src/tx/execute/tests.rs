@@ -281,6 +281,10 @@ fn op_needs_doc_flush_for_read() {
     let op = Operation::Read {
         path: "f.txt".into(),
         lines: None,
+        offset: None,
+        limit: None,
+        start_line: None,
+        end_line: None,
     };
     assert!(op_needs_doc_flush(&op));
 }
@@ -693,6 +697,8 @@ fn case_only_rename_plan_apply_preserves_content() {
         validate: None,
         verify: None,
         for_each: None,
+        agent_preset: false,
+        expected_sha256: None,
     };
     let report = crate::tx::execute_plan_direct(plan, dir.path(), None).expect("plan ok");
     assert!(
@@ -769,6 +775,8 @@ fn binary_delete_plus_empty_create_does_not_rename_bytes() {
         validate: None,
         verify: None,
         for_each: None,
+        agent_preset: false,
+        expected_sha256: None,
     };
     let report = crate::tx::execute_plan_direct(plan, dir.path(), None).expect("plan ok");
     assert!(report.ok, "plan should succeed: {report:?}");
@@ -795,6 +803,10 @@ fn read_only_files_skip_write_policy() {
         operations: vec![Operation::Read {
             path: "readonly.txt".into(),
             lines: None,
+            offset: None,
+            limit: None,
+            start_line: None,
+            end_line: None,
         }],
         write_policy: Some(crate::write::WritePolicyOverride {
             ensure_final_newline: Some(true),
@@ -806,6 +818,8 @@ fn read_only_files_skip_write_policy() {
         verify: None,
         cwd: None,
         for_each: None,
+        agent_preset: false,
+        expected_sha256: None,
     };
 
     let global = GlobalFlags {
@@ -851,6 +865,8 @@ fn execute_and_collect_preserves_no_match_error_kind() {
         verify: None,
         cwd: None,
         for_each: None,
+        agent_preset: false,
+        expected_sha256: None,
     };
     let ctx = crate::tx::context::EngineContext::from_global(
         &GlobalFlags::default(),
@@ -896,6 +912,8 @@ fn execute_and_collect_doc_update_typo_includes_did_you_mean() {
         verify: None,
         cwd: None,
         for_each: None,
+        agent_preset: false,
+        expected_sha256: None,
     };
     let ctx = crate::tx::context::EngineContext::from_global(
         &GlobalFlags::default(),
@@ -950,6 +968,8 @@ fn rename_then_create_preserves_both_paths() {
         validate: None,
         verify: None,
         for_each: None,
+        agent_preset: false,
+        expected_sha256: None,
     };
     let report = crate::tx::execute_plan_direct(plan, dir.path(), None).expect("plan ok");
     assert!(report.ok, "rename-then-create should succeed: {report:?}");
@@ -991,6 +1011,8 @@ fn rename_then_delete_dest_removes_both() {
         validate: None,
         verify: None,
         for_each: None,
+        agent_preset: false,
+        expected_sha256: None,
     };
     let report = crate::tx::execute_plan_direct(plan, dir.path(), None).expect("plan ok");
     assert!(
@@ -1462,4 +1484,63 @@ fn delete_chained_rename_dest_three_link_removes_all() {
             "{name} must not remain after deleting the chain dest"
         );
     }
+}
+
+#[test]
+fn read_returns_whole_file_sha256_and_offset_window() {
+    let dir = TempDir::new().unwrap();
+    std::fs::write(dir.path().join("f.txt"), "a\nb\nc\nd\n").unwrap();
+    let report = apply_ops(
+        dir.path(),
+        serde_json::json!([
+            {"op": "read", "path": "f.txt", "offset": 2, "limit": 2}
+        ]),
+    );
+    assert!(report.ok, "{report:?}");
+    let read = report.reads.first().expect("read");
+    assert_eq!(read.content, "b\nc");
+    assert_eq!(read.start_line, 2);
+    assert_eq!(read.sha256, crate::ops::read::sha256_hex(b"a\nb\nc\nd\n"));
+}
+
+#[test]
+fn expected_sha256_mismatch_is_stale_and_does_not_write() {
+    let dir = TempDir::new().unwrap();
+    std::fs::write(dir.path().join("f.txt"), "hello\n").unwrap();
+    let plan: crate::plan::Plan = serde_json::from_value(serde_json::json!({
+        "version": 1,
+        "expected_sha256": {"f.txt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+        "operations": [{"op": "replace", "path": "f.txt", "old": "hello", "new": "bye"}]
+    }))
+    .unwrap();
+    let report = crate::tx::execute_plan_direct(plan, dir.path(), None).unwrap();
+    assert_eq!(report.error_kind.as_deref(), Some("stale"), "{report:?}");
+    assert!(!report.applied, "{report:?}");
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("f.txt")).unwrap(),
+        "hello\n"
+    );
+}
+
+#[test]
+fn agent_preset_rejects_a_second_match() {
+    let dir = TempDir::new().unwrap();
+    std::fs::write(dir.path().join("f.txt"), "foo\nfoo\n").unwrap();
+    let plan: crate::plan::Plan = serde_json::from_value(serde_json::json!({
+        "version": 1,
+        "agent_preset": true,
+        "operations": [{"op": "replace", "path": "f.txt", "old": "foo", "new": "bar"}]
+    }))
+    .unwrap();
+    let report = crate::tx::execute_plan_direct(plan, dir.path(), None).unwrap();
+    assert_eq!(
+        report.error_kind.as_deref(),
+        Some("ambiguous"),
+        "{report:?}"
+    );
+    assert!(!report.applied, "{report:?}");
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("f.txt")).unwrap(),
+        "foo\nfoo\n"
+    );
 }

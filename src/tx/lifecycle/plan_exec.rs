@@ -454,6 +454,10 @@ mod tests {
             operations: vec![crate::plan::Operation::Read {
                 path: "test.txt".into(),
                 lines: None,
+                offset: None,
+                limit: None,
+                start_line: None,
+                end_line: None,
             }],
             write_policy: None,
             strict: None,
@@ -461,6 +465,8 @@ mod tests {
             validate: None,
             verify: None,
             for_each: None,
+            agent_preset: false,
+            expected_sha256: None,
         }
     }
 
@@ -591,6 +597,8 @@ mod tests {
             validate: None,
             verify: None,
             for_each: None,
+            agent_preset: false,
+            expected_sha256: None,
         };
         let err = validate_and_prepare_plan(&plan, dir.path(), false, None).unwrap_err();
         assert_eq!(err.error_kind.as_deref(), Some("invalid_input"));
@@ -617,6 +625,10 @@ mod tests {
             operations: vec![crate::plan::Operation::Read {
                 path: "test.txt".into(),
                 lines: None,
+                offset: None,
+                limit: None,
+                start_line: None,
+                end_line: None,
             }],
             write_policy: None,
             strict: None,
@@ -624,6 +636,8 @@ mod tests {
             validate: None,
             verify: None,
             for_each: None,
+            agent_preset: false,
+            expected_sha256: None,
         };
 
         let result = execute_plan_direct(plan, dir.path(), Some(&guard));
@@ -827,6 +841,8 @@ mod tests {
             strict: None,
             write_policy: None,
             for_each: None,
+            agent_preset: false,
+            expected_sha256: None,
         };
         let cwd = Path::new("/tmp");
         assert!(run_lifecycle(&plan, cwd, cwd, true).is_none());
@@ -1214,6 +1230,8 @@ mod tests {
             validate: None,
             verify: None,
             for_each: None,
+            agent_preset: false,
+            expected_sha256: None,
         };
 
         let report = execute_plan_direct(plan, dir.path(), None).expect("plan ok");
@@ -1283,6 +1301,8 @@ mod tests {
                 attr: None,
             }]),
             for_each: None,
+            agent_preset: false,
+            expected_sha256: None,
         };
         let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
         let report =

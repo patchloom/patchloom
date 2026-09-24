@@ -982,6 +982,8 @@ mod tests {
             validate: None,
             verify: None,
             for_each: None,
+            agent_preset: false,
+            expected_sha256: None,
         };
         let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
         let report = crate::tx::execute_plan_direct(plan, dir.path(), None).expect("plan ok");
@@ -1026,6 +1028,8 @@ mod tests {
                 validate: None,
                 verify: None,
                 for_each: None,
+                agent_preset: false,
+                expected_sha256: None,
             };
             let report =
                 crate::tx::execute_plan_direct(plan, dir.path(), None).expect("plan executes");
@@ -1070,6 +1074,8 @@ mod tests {
             validate: None,
             verify: None,
             for_each: None,
+            agent_preset: false,
+            expected_sha256: None,
         };
         let report = crate::tx::execute_plan_direct(plan, dir.path(), None).expect("plan executes");
         assert!(report.ok, "newline target_prepend must apply: {report:?}");
@@ -1199,6 +1205,8 @@ mod tests {
             validate: None,
             verify: None,
             for_each: None,
+            agent_preset: false,
+            expected_sha256: None,
         };
         crate::ast::reset_parse_count();
         let report = crate::tx::execute_plan_direct(plan, dir.path(), None).expect("plan ok");

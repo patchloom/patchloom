@@ -359,9 +359,22 @@ pub(super) fn describe_operation(op: &Operation) -> String {
             let mode = if *literal { "literal" } else { "regex" };
             format!("Search for \"{pattern}\" in {path} ({mode})")
         }
-        Operation::Read { path, lines } => match lines {
-            Some(range) => format!("Read {path} lines {range}"),
-            None => format!("Read {path}"),
+        Operation::Read {
+            path,
+            lines,
+            offset,
+            limit,
+            start_line,
+            end_line,
+        } => match crate::ops::read::resolve_read_lines(
+            lines.as_deref(),
+            *offset,
+            *limit,
+            *start_line,
+            *end_line,
+        ) {
+            Ok(Some(range)) => format!("Read {path} lines {range}"),
+            _ => format!("Read {path}"),
         },
         Operation::MdLintAgents { path } => {
             format!("Lint {path} for AGENTS.md issues")
@@ -716,6 +729,8 @@ mod tests {
             validate: None,
             verify: None,
             for_each: None,
+            agent_preset: false,
+            expected_sha256: None,
         };
         // Just ensure it doesn't panic.
         print_human_summary(&plan, true).unwrap();
@@ -743,6 +758,8 @@ mod tests {
             }]),
             verify: None,
             for_each: None,
+            agent_preset: false,
+            expected_sha256: None,
         };
         let json = build_json_summary(&plan, false);
         assert_eq!(json["operation_count"], 1);
@@ -876,6 +893,10 @@ mod tests {
         let op = Operation::Read {
             path: "src/lib.rs".into(),
             lines: Some("10:20".into()),
+            offset: None,
+            limit: None,
+            start_line: None,
+            end_line: None,
         };
         assert_eq!(describe_operation(&op), "Read src/lib.rs lines 10:20");
     }
@@ -885,6 +906,10 @@ mod tests {
         let op = Operation::Read {
             path: "README.md".into(),
             lines: None,
+            offset: None,
+            limit: None,
+            start_line: None,
+            end_line: None,
         };
         assert_eq!(describe_operation(&op), "Read README.md");
     }
@@ -1243,6 +1268,8 @@ mod tests {
             validate: None,
             verify: None,
             for_each: None,
+            agent_preset: false,
+            expected_sha256: None,
         };
         // Capture output by calling the function (it prints to stdout).
         // Just ensure it doesn't panic; the logic is tested by presence of
@@ -1275,6 +1302,8 @@ mod tests {
                 },
             ]),
             for_each: None,
+            agent_preset: false,
+            expected_sha256: None,
         };
         // Should not panic; exercises verify display path
         print_human_summary(&plan, false).unwrap();
@@ -1298,6 +1327,8 @@ mod tests {
                 check: "unique_names".into(),
             }]),
             for_each: None,
+            agent_preset: false,
+            expected_sha256: None,
         };
         let json = build_json_summary(&plan, false);
         assert_eq!(json["verify_checks"], 1);

@@ -569,7 +569,7 @@ mod basic {
             Check {
                 op_name: "replace",
                 mcp_keys: schema_keys_for::<ReplaceParams>(),
-                mcp_only_allowed: &["strict", "regex"],
+                mcp_only_allowed: &["strict", "regex", "agent_preset", "expected_sha256"],
                 op_only_allowed: &["glob", "mode"],
             },
             // tidy.fix / fix_whitespace is registry-generated (no hand-written params).

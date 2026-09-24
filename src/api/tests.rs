@@ -2120,6 +2120,8 @@ fn execute_plan_empty_create_refuses_existing_dest() {
         validate: None,
         verify: None,
         for_each: None,
+        agent_preset: false,
+        expected_sha256: None,
     };
     let report = execute_plan(plan, dir.path(), None).expect("plan report");
     assert!(!report.ok, "empty-create dest-exists must fail: {report:?}");
@@ -9751,6 +9753,8 @@ fn execute_plan_patch_merge_conflict_is_conflicts() {
         validate: None,
         verify: None,
         for_each: None,
+        agent_preset: false,
+        expected_sha256: None,
     };
     // Plan failures return Ok(PlanReport) with ok:false + error_kind (not Err).
     let report = execute_plan(plan, dir.path(), None).expect("plan report");

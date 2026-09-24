@@ -377,6 +377,32 @@ pub(super) fn inject_strict_into_schema(mut schema: serde_json::Value) -> serde_
     schema
 }
 
+/// Optional write preconditions advertised on registry tools (#2614, #2617).
+pub(super) fn inject_write_preconditions(schema: &mut serde_json::Value) {
+    let Some(props) = schema
+        .as_object_mut()
+        .and_then(|obj| obj.get_mut("properties"))
+        .and_then(|p| p.as_object_mut())
+    else {
+        return;
+    };
+    props.insert(
+        "expected_sha256".to_string(),
+        serde_json::json!({
+            "type": "string",
+            "description": "SHA-256 hex of the file's current bytes. If it does not match, the tool returns error_kind stale and writes nothing."
+        }),
+    );
+    props.insert(
+        "agent_preset".to_string(),
+        serde_json::json!({
+            "type": "boolean",
+            "description": "When true, replace uses the agent preset: unique, require_change, fuzzy floor 0.90, allow_absent_old false. Off unless set.",
+            "default": false
+        }),
+    );
+}
+
 /// LLM-prior field aliases accepted by plan serde and hand-written MCP params.
 ///
 /// Remap **before** the registry allowlist so schemars-derived schemas (which do
@@ -436,6 +462,14 @@ pub(super) fn handle_simple_op(
     let args_obj = args
         .as_object_mut()
         .ok_or_else(|| McpError::invalid_params("expected JSON object", None))?;
+
+    // Accepted on every registry tool. Stripped before the schema allowlist
+    // so read aliases stay on the op and these two stay plan-level (#2614, #2617).
+    let agent_preset = args_obj
+        .remove("agent_preset")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let expected_sha256 = args_obj.remove("expected_sha256");
 
     // Remap LLM-prior aliases first so allowlist sees only canonical names (#1696).
     apply_field_aliases(args_obj, allowed_fields)?;
@@ -547,7 +581,25 @@ pub(super) fn handle_simple_op(
         }
     }
 
-    service.run_one_op(op, strict)
+    let expected = match expected_sha256 {
+        None => None,
+        Some(value) => {
+            let hash = value.as_str().ok_or_else(|| {
+                McpError::invalid_params("expected_sha256 must be a string", None)
+            })?;
+            let paths = op.declared_paths();
+            if paths.len() != 1 {
+                return Err(McpError::invalid_params(
+                    "expected_sha256 requires exactly one path on this tool",
+                    None,
+                ));
+            }
+            let mut map = std::collections::BTreeMap::new();
+            map.insert(paths[0].clone(), hash.to_string());
+            Some(map)
+        }
+    };
+    service.run_ops_ex(vec![op], strict, agent_preset, expected)
 }
 
 #[cfg(test)]
