@@ -245,12 +245,13 @@ fn collect_tx_search_matches(
     let lines: Vec<&str> = crate::ops::file::text_lines(content).collect();
     let mut matches = Vec::new();
     if scan.multiline {
+        let line_index = crate::ops::file::LineIndex::new(content);
         for m in scan.re.find_iter(content) {
-            let line_idx = crate::ops::file::text_line_index(content, m.start());
+            let line_idx = line_index.line_index(m.start());
             let match_end_line = if m.end() == 0 {
                 line_idx
             } else {
-                crate::ops::file::text_line_index(content, m.end() - 1)
+                line_index.line_index(m.end() - 1)
             };
             let start = line_idx.saturating_sub(scan.ctx_before);
             let end = (match_end_line + 1 + scan.ctx_after).min(lines.len());

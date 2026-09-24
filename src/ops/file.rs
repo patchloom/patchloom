@@ -145,28 +145,56 @@ impl<'a> Iterator for TextLinesWithEndings<'a> {
     }
 }
 
-/// 0-based `text_lines` index of the line that contains `offset`.
-pub fn text_line_index(content: &str, offset: usize) -> usize {
-    let offset = offset.min(content.len());
-    let mut idx = 0;
-    let bytes = content.as_bytes();
-    let mut i = 0;
-    while i < offset {
-        if bytes[i] == b'\n' {
-            idx += 1;
-            i += 1;
-        } else if bytes[i] == b'\r' {
-            idx += 1;
-            if i + 1 < bytes.len() && bytes[i + 1] == b'\n' {
+/// Line-start byte offsets for one file, using the same CR / CRLF / LF
+/// model as [`text_lines`]. Build once, then [`LineIndex::line_index`]
+/// is a binary search (#2611).
+#[derive(Clone, Debug)]
+pub struct LineIndex {
+    starts: Vec<usize>,
+}
+
+impl LineIndex {
+    pub fn new(content: &str) -> Self {
+        let bytes = content.as_bytes();
+        let mut starts = Vec::with_capacity(bytes.len() / 32 + 1);
+        starts.push(0);
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] != b'\n' && bytes[i] != b'\r' {
+                i += 1;
+                continue;
+            }
+            // Same count as the old scan: a break is counted once `offset`
+            // passes the first byte of the ending. For CRLF that byte is
+            // the CR, so the next line starts at the LF.
+            let start = i + 1;
+            if bytes[i] == b'\r' && start < bytes.len() && bytes[start] == b'\n' {
                 i += 2;
             } else {
                 i += 1;
             }
-        } else {
-            i += 1;
+            if start <= bytes.len() {
+                starts.push(start);
+            }
+        }
+        Self { starts }
+    }
+
+    /// 0-based line of `offset`. An offset past the end is the last line.
+    pub fn line_index(&self, offset: usize) -> usize {
+        match self.starts.binary_search(&offset) {
+            Ok(i) => i,
+            Err(i) => i.saturating_sub(1),
         }
     }
-    idx
+}
+
+/// 0-based `text_lines` index of the line that contains `offset`.
+///
+/// Prefer [`LineIndex`] when the same file is queried more than once.
+pub fn text_line_index(content: &str, offset: usize) -> usize {
+    let offset = offset.min(content.len());
+    LineIndex::new(content).line_index(offset)
 }
 
 /// 1-based line and column of `offset`, treating `\n`, `\r\n`, and a lone
@@ -1175,6 +1203,19 @@ mod tests {
         assert_eq!(text_line_column(s, 4), (2, 1));
         assert_eq!(text_line_column("end\r\nnext", 5), (2, 1));
         assert_eq!(text_line_column("end\nnext", 4), (2, 1));
+    }
+
+    #[test]
+    fn line_index_crlf_break_counts_when_offset_passes_cr() {
+        assert_eq!(text_line_index("end\r\nnext", 4), 1);
+        assert_eq!(text_line_index("a\n", 2), 1);
+        assert_eq!(text_line_index("a\r\n", 2), 1);
+        assert_eq!(text_line_index("a\r\n", 3), 1);
+        let s = "end\r\nnext\r";
+        let index = LineIndex::new(s);
+        for offset in 0..=s.len() {
+            assert_eq!(index.line_index(offset), text_line_index(s, offset));
+        }
     }
 
     #[test]

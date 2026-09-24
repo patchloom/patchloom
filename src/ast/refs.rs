@@ -164,12 +164,14 @@ pub fn find_refs_in_source_with_tree(
     file_path: &str,
 ) -> Vec<SymbolRef> {
     let lines: Vec<&str> = crate::ops::file::text_lines(source).collect();
+    let line_index = crate::ops::file::LineIndex::new(source);
     let mut refs = Vec::new();
     collect_refs(
         tree.root_node(),
         source,
         symbol_name,
         &lines,
+        &line_index,
         file_path,
         &mut refs,
     );
@@ -187,8 +189,16 @@ pub fn find_all_refs_in_source_with_tree(
     file_path: &str,
 ) -> Vec<(String, SymbolRef)> {
     let lines: Vec<&str> = crate::ops::file::text_lines(source).collect();
+    let line_index = crate::ops::file::LineIndex::new(source);
     let mut refs = Vec::new();
-    collect_all_refs(tree.root_node(), source, &lines, file_path, &mut refs);
+    collect_all_refs(
+        tree.root_node(),
+        source,
+        &lines,
+        &line_index,
+        file_path,
+        &mut refs,
+    );
     refs
 }
 
@@ -252,6 +262,7 @@ fn collect_refs(
     source: &str,
     symbol_name: &str,
     lines: &[&str],
+    line_index: &crate::ops::file::LineIndex,
     file_path: &str,
     refs: &mut Vec<SymbolRef>,
 ) {
@@ -263,7 +274,7 @@ fn collect_refs(
         && let Ok(text) = node.utf8_text(source.as_bytes())
         && text == symbol_name
     {
-        let line_idx = crate::ops::file::text_line_index(source, node.start_byte());
+        let line_idx = line_index.line_index(node.start_byte());
         let line = line_idx + 1;
         let context = lines.get(line_idx).unwrap_or(&"").trim().to_string();
 
@@ -284,7 +295,15 @@ fn collect_refs(
     let mut cursor = node.walk();
     if cursor.goto_first_child() {
         loop {
-            collect_refs(cursor.node(), source, symbol_name, lines, file_path, refs);
+            collect_refs(
+                cursor.node(),
+                source,
+                symbol_name,
+                lines,
+                line_index,
+                file_path,
+                refs,
+            );
             if !cursor.goto_next_sibling() {
                 break;
             }
@@ -296,6 +315,7 @@ fn collect_all_refs(
     node: tree_sitter_lib::Node,
     source: &str,
     lines: &[&str],
+    line_index: &crate::ops::file::LineIndex,
     file_path: &str,
     refs: &mut Vec<(String, SymbolRef)>,
 ) {
@@ -306,7 +326,7 @@ fn collect_all_refs(
     if IDENTIFIER_KINDS.contains(&node.kind())
         && let Ok(text) = node.utf8_text(source.as_bytes())
     {
-        let line_idx = crate::ops::file::text_line_index(source, node.start_byte());
+        let line_idx = line_index.line_index(node.start_byte());
         let line = line_idx + 1;
         let context = lines.get(line_idx).unwrap_or(&"").trim().to_string();
 
@@ -330,7 +350,7 @@ fn collect_all_refs(
     let mut cursor = node.walk();
     if cursor.goto_first_child() {
         loop {
-            collect_all_refs(cursor.node(), source, lines, file_path, refs);
+            collect_all_refs(cursor.node(), source, lines, line_index, file_path, refs);
             if !cursor.goto_next_sibling() {
                 break;
             }

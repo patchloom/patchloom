@@ -358,9 +358,10 @@ pub fn search_one_file(
         let re = re.as_ref().expect("multiline always builds regex");
         let mut results = Vec::new();
         let all_lines: Vec<&str> = crate::ops::file::text_lines(content).collect();
+        let line_index = crate::ops::file::LineIndex::new(content);
         for m in re.find_iter(content) {
             let start_byte = m.start();
-            let line_num = crate::ops::file::text_line_index(content, start_byte);
+            let line_num = line_index.line_index(start_byte);
             let line_text = all_lines.get(line_num).unwrap_or(&"").to_string();
             let (context_before, context_after) =
                 build_context_lines(&all_lines, line_num, ctx_before, ctx_after);
