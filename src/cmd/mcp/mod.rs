@@ -597,6 +597,14 @@ fn execute_plan_validated(
 /// references, `search_files` with no hits). These are correct answers, not
 /// errors. Returning `isError: false` prevents LLM agents from entering
 /// unnecessary recovery mode. See #1270.
+/// Re-serialize a JSON payload without indentation. Non-JSON text is unchanged.
+fn compact_json_text(text: &str) -> String {
+    match serde_json::from_str::<serde_json::Value>(text) {
+        Ok(value) => serde_json::to_string(&value).unwrap_or_else(|_| text.to_string()),
+        Err(_) => text.to_string(),
+    }
+}
+
 fn no_results(msg: &str) -> Result<CallToolResult, McpError> {
     Ok(CallToolResult::success(vec![ContentBlock::text(msg)]))
 }
@@ -615,7 +623,7 @@ fn exit_code_to_result(code: u8, output: &str, fallback: &str) -> Result<CallToo
             fallback.to_string()
         }
     } else {
-        output.trim().to_string()
+        compact_json_text(output.trim())
     };
     if code == exit::SUCCESS {
         Ok(CallToolResult::success(vec![ContentBlock::text(msg)]))
