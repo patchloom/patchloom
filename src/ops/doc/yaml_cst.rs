@@ -1863,11 +1863,11 @@ items:
             .shift_remove("name");
 
         let result = apply_and_serialize(yaml, &old, &new);
-        // First remaining key is over-indented (CST remove); caller
-        // `fix_yaml_block_indentation` repairs that. Lock remaining keys.
+        // yaml-edit 0.3.2 keeps the first remaining key at the same indent
+        // as its siblings. Lock the quotes and the key order.
         assert_eq!(
             result,
-            "app:\n    version: \"1.0.0\"\n  enabled: \"true\"\n  port: \"8080\"\n"
+            "app:\n  version: \"1.0.0\"\n  enabled: \"true\"\n  port: \"8080\"\n"
         );
     }
 
