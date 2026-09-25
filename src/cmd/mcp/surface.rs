@@ -529,6 +529,7 @@ mod tests {
                     | "undo_restore"
                     | "replace_text"
                     | "apply_patch"
+                    | "notebook_edit"
             )
     }
 
