@@ -297,6 +297,8 @@ impl<'a> Parser<'a> {
         if self.peek() == Some('}') {
             return Err("notebook has no cells array".to_string());
         }
+        // serde_json and Jupyter keep the last duplicate key.
+        let mut found: Option<Vec<(usize, usize)>> = None;
         loop {
             self.skip_ws();
             let key = self.parse_string()?;
@@ -306,13 +308,16 @@ impl<'a> Parser<'a> {
             }
             self.skip_ws();
             if key == "cells" {
-                return self.array_element_spans();
+                found = Some(self.array_element_spans()?);
+            } else {
+                self.skip_value()?;
             }
-            self.skip_value()?;
             self.skip_ws();
             match self.bump() {
                 Some(',') => continue,
-                Some('}') => return Err("notebook has no cells array".to_string()),
+                Some('}') => {
+                    return found.ok_or_else(|| "notebook has no cells array".to_string());
+                }
                 _ => return Err("expected comma or end of object".to_string()),
             }
         }
@@ -352,6 +357,8 @@ impl<'a> Parser<'a> {
         if self.peek() == Some('}') {
             return Err(format!("missing {want}"));
         }
+        // Last duplicate key wins, matching serde_json and Jupyter.
+        let mut found: Option<(usize, usize)> = None;
         loop {
             self.skip_ws();
             let key = self.parse_string()?;
@@ -363,13 +370,16 @@ impl<'a> Parser<'a> {
             if key == want {
                 let start = self.i;
                 self.skip_value()?;
-                return Ok((start, self.i));
+                found = Some((start, self.i));
+            } else {
+                self.skip_value()?;
             }
-            self.skip_value()?;
             self.skip_ws();
             match self.bump() {
                 Some(',') => continue,
-                Some('}') => return Err(format!("missing {want}")),
+                Some('}') => {
+                    return found.ok_or_else(|| format!("missing {want}"));
+                }
                 _ => return Err("expected comma or end of object".to_string()),
             }
         }
@@ -456,5 +466,27 @@ mod tests {
         let v: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["cells"][0]["source"][0], "new\n");
         assert!(out.contains("\"cell_type\":\"code\"") || out.contains("\"cell_type\": \"code\""));
+    }
+
+    #[test]
+    fn last_cells_array_is_the_one_edited() {
+        let raw = r#"{"cells":[{"id":"old","source":"nope\n"}],"cells":[{"id":"live","cell_type":"code","source":"keep\n"}]}"#;
+        let out = replace_cell_source(raw, "live", "next\n").unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["cells"][0]["id"], "live");
+        assert_eq!(v["cells"][0]["source"][0], "next\n");
+        assert!(
+            out.contains("nope"),
+            "discarded cells array should stay: {out}"
+        );
+    }
+
+    #[test]
+    fn last_source_key_is_the_one_edited() {
+        let raw = r#"{"cells":[{"id":"a","source":"shadow\n","source":"live\n"}]}"#;
+        let out = replace_cell_source(raw, "a", "next\n").unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["cells"][0]["source"][0], "next\n");
+        assert!(out.contains("shadow"), "first source should stay: {out}");
     }
 }
