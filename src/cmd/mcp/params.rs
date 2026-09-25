@@ -1,4 +1,5 @@
 // Parameter structs for MCP tools with custom handler logic.
+// size-waiver: MCP parameter structs and co-located deserializer tests #2615
 //
 // Simple 1:1 Operation-mapped tools (doc_set, doc_delete, doc_merge, doc_append,
 // doc_prepend, doc_ensure, doc_delete_where, doc_update, doc_move, read_file,
