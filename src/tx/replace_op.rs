@@ -170,8 +170,11 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
     } else {
         *op_require_change
     };
-    let fuzzy = if tx.agent_preset { true } else { *op_fuzzy };
-    let min_fuzzy_score = if tx.agent_preset {
+    // command_position rejects fuzzy. Keep that match exact under the
+    // preset; unique / require_change / allow_absent_old still apply (#2633).
+    let preset_fuzzy = tx.agent_preset && !*command_position;
+    let fuzzy = if preset_fuzzy { true } else { *op_fuzzy };
+    let min_fuzzy_score = if preset_fuzzy {
         Some(crate::api::AGENT_MIN_FUZZY_SCORE)
     } else {
         *op_min_fuzzy

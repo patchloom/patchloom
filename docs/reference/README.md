@@ -1137,7 +1137,7 @@ Use these when newline and whitespace correctness is the main concern.
 <!-- ref:tx-field:agent_preset -->
 ### `agent_preset`
 
-- **What it does:** When true, every `replace` in the plan uses the library agent preset: `unique`, `require_change`, fuzzy matching with floor 0.90, and `allow_absent_old` false. Those four fields on the op are ignored for that run.
+- **What it does:** When true, every `replace` in the plan uses the library agent preset: `unique`, `require_change`, fuzzy matching with floor 0.90, and `allow_absent_old` false. Those four fields on the op are ignored for that run. A `command_position` replace stays exact: the preset does not force fuzzy on it. `unique`, `require_change`, and `allow_absent_old: false` still apply. An op that sets `fuzzy: true` itself is still rejected.
 - **Use when:** An agent wants one switch instead of setting the four fields on every replace. Leave it off for replace-all or a looser fuzzy floor.
 - **Field value:** Boolean. Omitted is false.
 - **Failure behavior:** Same as the preset fields themselves (`ambiguous`, `no_matches`, `fuzzy_span_suspicious`). A zero-match replace fails closed.
@@ -1145,7 +1145,7 @@ Use these when newline and whitespace correctness is the main concern.
 <!-- ref:tx-field:expected_sha256 -->
 ### `expected_sha256`
 
-- **What it does:** Map of plan path to the sha256 hex of that file's current text. The engine checks it before the op uses the file. `read` also returns `sha256` of the whole file, including when `lines` or `offset`/`limit` returns a slice.
+- **What it does:** Map of plan path to the sha256 hex of that file's text before the plan runs. The engine checks that pre-plan text before the op uses the file, including when an earlier op in the same plan already changed the pending body. `read` also returns `sha256` of the whole file, including when `lines` or `offset`/`limit` returns a slice.
 - **Use when:** A write must apply only if the file is still the version that was read. Same idea as HTTP `If-Match` and a whole-file checksum on a line edit.
 - **Field value:** Object of path to 64 hex characters. Omitted skips the check.
 - **Failure behavior:** A mismatch or a missing file is `error_kind: stale` (exit 1) and nothing is written. A hash that is not 64 hex characters is `invalid_input`.

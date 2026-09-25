@@ -1130,6 +1130,14 @@ mod replace_tests {
         }
 
         #[test]
+        fn replace_content_literal_lf_needle_matches_lf_span_in_mixed_file() {
+            let content = "a\r\nb\r\nc\r\nx\ny\n";
+            let (out, count) = replace_content(content, "x\ny", "z", None, None);
+            assert_eq!(count, 1, "mixed file must keep the bare-LF span");
+            assert_eq!(&*out, "a\r\nb\r\nc\r\nz\n");
+        }
+
+        #[test]
         fn replace_content_literal_crlf_needle_still_matches_and_lf_replacement_adapts() {
             let content = "a\r\nhello\r\nb\r\n";
             let (out, count) = replace_content(content, "a\r\nhello", "q\n", None, None);

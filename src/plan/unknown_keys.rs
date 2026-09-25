@@ -30,6 +30,8 @@ const PLAN_KNOWN_KEYS: &[&str] = &[
     "validate",
     "verify",
     "for_each",
+    "agent_preset",
+    "expected_sha256",
 ];
 
 const OP_KEY_ALIASES: &[&str] = &[
