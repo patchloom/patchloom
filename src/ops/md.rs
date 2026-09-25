@@ -576,9 +576,10 @@ pub fn replace_section_in(
     let eol = crate::write::detect_eol(content);
     let (body_start, body_end) = find_section(content, heading)?;
 
-    // If the replacement starts with the same heading line, strip it so the
+    // If the replacement starts with the same ATX heading, strip it so the
     // caller does not have to know whether the heading is included or not.
-    // The heading is already preserved in content[..body_start].
+    // The heading is already preserved in content[..body_start]. A plain
+    // line whose text equals the query stays in the body (#2637).
     let replacement = strip_leading_heading(replacement, heading);
 
     // Check whether the original body had a trailing blank line before
@@ -632,7 +633,7 @@ fn strip_leading_heading<'a>(text: &'a str, heading: &str) -> &'a str {
     let (level, query) = normalize_heading_query(heading);
     let first_line = crate::ops::file::text_lines(text).next().unwrap_or("");
     let (first_level, first_text) = normalize_heading_query(first_line);
-    if first_text == query && (level.is_none() || first_level == level) {
+    if first_level.is_some() && first_text == query && (level.is_none() || first_level == level) {
         let after_line = &text[first_line.len()..];
         skip_one_eol(after_line)
     } else {
