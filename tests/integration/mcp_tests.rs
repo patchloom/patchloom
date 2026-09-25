@@ -98,7 +98,7 @@ fn test_mcp_surface_invalid_env_fails_closed() {
 /// Subprocess path: `from_env` + list_tools (unit tests inject surface without env).
 #[cfg(feature = "mcp")]
 #[tokio::test]
-async fn test_mcp_surface_core_env_lists_eleven_tools() {
+async fn test_mcp_surface_core_env_lists_twelve_tools() {
     if !has_mcp_support() {
         return;
     }
@@ -107,7 +107,7 @@ async fn test_mcp_surface_core_env_lists_eleven_tools() {
     let tools = client.peer().list_all_tools().await.unwrap();
     let names: std::collections::BTreeSet<_> =
         tools.iter().map(|t| t.name.as_ref().to_string()).collect();
-    assert_eq!(names.len(), 11, "core pack is 11 tools, got {names:?}");
+    assert_eq!(names.len(), 12, "core pack is 12 tools, got {names:?}");
     for required in [
         "read_file",
         "search_files",
@@ -119,6 +119,7 @@ async fn test_mcp_surface_core_env_lists_eleven_tools() {
         "doc_query",
         "md_replace_section",
         "execute_plan",
+        "operation_schema",
         "server_info",
     ] {
         assert!(names.contains(required), "missing core tool {required}");
@@ -145,7 +146,7 @@ async fn test_mcp_surface_core_env_lists_eleven_tools() {
     };
     let v: serde_json::Value = serde_json::from_str(text).unwrap();
     assert_eq!(v["surface"], "core");
-    assert_eq!(v["tool_count"], 11);
+    assert_eq!(v["tool_count"], 12);
     client.cancel().await.unwrap();
 }
 

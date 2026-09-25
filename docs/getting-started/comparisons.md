@@ -16,7 +16,7 @@ Patchloom is **not** a generic filesystem MCP and **not** a drop-in replacement 
 
 **Use a generic filesystem MCP** only when you need pure FS ops and Patchloom is not installed.
 
-**Use Patchloom alone** for list + search + structured edit: MCP `list_files` covers inventory (ignore-aware, capped), so coding agents should not pair Patchloom with a second filesystem MCP for list/read/edit. Prefer `PATCHLOOM_MCP_SURFACE=core` (11 tools including `list_files`).
+**Use Patchloom alone** for list + search + structured edit: MCP `list_files` covers inventory (ignore-aware, capped), so coding agents should not pair Patchloom with a second filesystem MCP for list/read/edit. Prefer `PATCHLOOM_MCP_SURFACE=core` (12 tools including `list_files`).
 
 Install notes: [MCP setup](mcp-setup.md) (Cursor / Claude / Codex paste configs with core). Registry name: `io.github.patchloom/patchloom`.
 

@@ -1513,8 +1513,8 @@ async fn test_mcp_list_files_on_core_surface() {
     );
     assert_eq!(
         names.len(),
-        11,
-        "core pack is 11 tools including list_files: {names:?}"
+        12,
+        "core pack is 12 tools including list_files: {names:?}"
     );
     let (is_error, val) =
         call_tool_value(&client, "list_files", serde_json::json!({"path": "."})).await;

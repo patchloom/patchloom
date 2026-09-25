@@ -43,7 +43,8 @@ fn core_server_instructions() -> String {
          - replace_text, batch_replace: literal/regex text edits\n\
          - doc_get, doc_set, doc_query: parser-backed JSON/YAML/TOML by selector path\n\
          - md_replace_section: replace a markdown heading section\n\
-         - execute_plan: multi-op atomic plans (tx)\n\
+         - execute_plan: multi-op atomic plans (tx). plan requires version and operations; each op requires string op\n\
+         - operation_schema: JSON schema for one plan op name, for execute_plan fields\n\
          - server_info: cwd, surface, tool_count, version, protocol_version\n\n\
          Use doc_get/doc_set/doc_query for structured config; replace_text only where structure does not matter.\n\n",
     );

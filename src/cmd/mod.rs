@@ -123,7 +123,7 @@ ENVIRONMENT:
   PATCHLOOM_MCP_SURFACE=core|full
           Tool inventory at handshake (env only; no CLI flag). Unset or `full`
           keeps the full inventory (product default). `core` registers the
-          11-tool pack for small agents. See README.md (MCP / coding agents)."
+          12-tool pack for small agents. See README.md (MCP / coding agents)."
     )]
     McpServer {
         /// Log every tool call to a JSONL file (tool name, duration, status).

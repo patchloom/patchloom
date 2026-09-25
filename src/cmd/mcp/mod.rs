@@ -129,6 +129,7 @@ const READ_ONLY_MCP_TOOLS: &[&str] = &[
     "tidy_check",
     "undo_list",
     "server_info",
+    "operation_schema",
     "ast_list",
     "ast_read",
     "ast_validate",

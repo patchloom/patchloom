@@ -242,7 +242,8 @@ AST tools so `list_tools` stays honest about what is callable.
 | `apply_patch` | Apply a unified diff, Codex Begin Patch, or SEARCH/REPLACE / DiffFenced document (unique unless `replace_all`). Default `apply=true` writes. Set `apply=false` for check-only (disk unchanged). Empty-hunk `+++ /dev/null` unlinks. A hunked delete applies minus first; leftover rewrites. Stale is `ambiguous` and does not unlink |
 | `batch_replace` | Replace the same text across multiple files atomically |
 | `batch_tidy` | Fix whitespace in multiple files atomically |
-| `execute_plan` | Execute a full multi-op transaction plan atomically (recommended for complex/multi-file edits). Supports inline plan or plan_path. MCP strips `format`/`validate`; CLI `tx` still runs those lifecycle steps. |
+| `execute_plan` | Execute a full multi-op transaction plan atomically (recommended for complex/multi-file edits). Supports inline plan or plan_path. The tool schema requires `version`, `operations`, and string `op`. Call `operation_schema` for one operation's fields. MCP strips `format`/`validate`; CLI `tx` still runs those lifecycle steps. |
+| `operation_schema` | Return the JSON schema for one plan operation name (`doc.set`, `notebook.edit`, ...). Does not run the operation. |
 | `ast_list` | List symbol definitions (functions, classes, structs, enums, methods) in a file or directory (20 languages). Filter by kind. |
 | `ast_read` | Read a specific symbol's source code by name from a file. |
 | `ast_rename` | Rename identifiers across files using AST-aware renaming (skips strings and comments). |
@@ -322,7 +323,7 @@ patchloom mcp-server
 | Value | Effect |
 |-------|--------|
 | unset or `full` | Full inventory (default; backward compatible) |
-| `core` | Only: `read_file`, `search_files`, `list_files`, `replace_text`, `batch_replace`, `doc_get`, `doc_set`, `doc_query`, `md_replace_section`, `execute_plan`, `server_info` |
+| `core` | Only: `read_file`, `search_files`, `list_files`, `replace_text`, `batch_replace`, `doc_get`, `doc_set`, `doc_query`, `md_replace_section`, `execute_plan`, `operation_schema`, `server_info` |
 | anything else | Server fails to start with a clear error |
 
 `server_info` includes `"surface": "core"|"full"`, `"tool_count"`, package `"version"`, MCP `"protocol_version"` (same as the initialize handshake), and when surface is full a `"recommendation"` string pointing coding agents at core. Invalid `PATCHLOOM_MCP_SURFACE` values are rejected (do not silently fall back).
