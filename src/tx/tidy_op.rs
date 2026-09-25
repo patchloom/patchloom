@@ -19,10 +19,11 @@ pub(crate) fn execute_tidy_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
             lines,
         } => {
             let file_path = tx.cwd.join(path);
-            // #2534: a directory expands with the same walker as CLI tidy fix.
+            // #2534: a directory expands with the same walker as CLI tidy fix,
+            // including dotfiles. .git stays skipped inside the walker (#2639).
             // Do not treat path globs as dest-glob; only a real directory.
             if file_path.is_dir() {
-                let files = crate::files::collect_file_paths(&file_path, false)?;
+                let files = crate::files::collect_file_paths(&file_path, true)?;
                 let mut n = 0;
                 for file in files {
                     let rel = file

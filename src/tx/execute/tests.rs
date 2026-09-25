@@ -1583,6 +1583,32 @@ fn expected_sha256_tidy_dir_mismatch_is_stale_and_does_not_write() {
 }
 
 #[test]
+fn tidy_fix_directory_includes_hidden_files() {
+    let dir = TempDir::new().unwrap();
+    let sub = dir.path().join("sub");
+    std::fs::create_dir_all(sub.join(".git")).unwrap();
+    std::fs::write(sub.join(".gitignore"), "foo").unwrap();
+    std::fs::write(sub.join("keep.txt"), "ok\n").unwrap();
+    std::fs::write(sub.join(".git").join("config"), "bare").unwrap();
+    let plan: crate::plan::Plan = serde_json::from_value(serde_json::json!({
+        "version": 1,
+        "operations": [{"op": "tidy.fix", "path": "sub"}]
+    }))
+    .unwrap();
+    let report = crate::tx::execute_plan_direct(plan, dir.path(), None).unwrap();
+    assert!(report.ok, "{report:?}");
+    assert!(report.applied, "{report:?}");
+    assert_eq!(
+        std::fs::read_to_string(sub.join(".gitignore")).unwrap(),
+        "foo\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(sub.join(".git").join("config")).unwrap(),
+        "bare"
+    );
+}
+
+#[test]
 fn expected_sha256_second_edit_uses_pre_plan_bytes() {
     let dir = TempDir::new().unwrap();
     let body = "hello\nworld\n";
