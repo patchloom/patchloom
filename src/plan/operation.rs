@@ -274,6 +274,20 @@ pub enum Operation {
         /// Line range restriction for dedent/indent: "10:50" (1-based inclusive).
         lines: Option<String>,
     },
+    /// Replace the source of one Jupyter cell, addressed by its `id`.
+    ///
+    /// `source` is the cell body as one string. It is stored as an nbformat
+    /// array of lines. Cell type, outputs, and every other byte outside that
+    /// source value stay put. This is not a `doc.set` on the raw JSON.
+    #[serde(rename = "notebook.edit")]
+    NotebookEdit {
+        path: String,
+        /// Cell `id` from the notebook. Not a 0-based index.
+        #[serde(alias = "id")]
+        cell_id: String,
+        /// New cell body. Newlines become the notebook source line array.
+        source: String,
+    },
     #[serde(rename = "file.create")]
     FileCreate {
         path: String,
@@ -665,6 +679,7 @@ impl Operation {
             Operation::TidyFix { .. } => "tidy.fix",
             Operation::FileAppend { .. } => "file.append",
             Operation::FilePrepend { .. } => "file.prepend",
+            Operation::NotebookEdit { .. } => "notebook.edit",
             Operation::FileCreate { .. } => "file.create",
             Operation::FileDelete { .. } => "file.delete",
             Operation::FileRename { .. } => "file.rename",
@@ -722,6 +737,7 @@ impl Operation {
                 | Operation::PatchApply { .. }
                 | Operation::FileAppend { .. }
                 | Operation::FilePrepend { .. }
+                | Operation::NotebookEdit { .. }
                 | Operation::FileCreate { .. }
                 | Operation::FileDelete { .. }
                 | Operation::FileRename { .. }

@@ -402,6 +402,7 @@ pub(crate) fn declared_paths(op: &Operation) -> Vec<String> {
         | Operation::TidyFix { path, .. }
         | Operation::FileAppend { path, .. }
         | Operation::FilePrepend { path, .. }
+        | Operation::NotebookEdit { path, .. }
         | Operation::FileCreate { path, .. }
         | Operation::FileDelete { path, .. }
         | Operation::Read { path, .. }

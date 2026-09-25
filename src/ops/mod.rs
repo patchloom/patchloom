@@ -3,6 +3,7 @@ pub mod begin_patch;
 pub mod doc;
 pub mod file;
 pub mod md;
+pub mod notebook;
 pub mod patch;
 pub mod read;
 pub mod replace;

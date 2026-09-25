@@ -1604,3 +1604,67 @@ fn agent_preset_rejects_a_second_match() {
         "foo\nfoo\n"
     );
 }
+
+const NOTEBOOK: &str = r#"{
+ "cells": [
+  {
+   "cell_type": "code",
+   "id": "load",
+   "metadata": {},
+   "outputs": [],
+   "source": ["import pandas\n"]
+  }
+ ],
+ "nbformat": 4,
+ "nbformat_minor": 5
+}
+"#;
+
+#[test]
+fn notebook_edit_replaces_cell_source() {
+    let dir = TempDir::new().unwrap();
+    std::fs::write(dir.path().join("a.ipynb"), NOTEBOOK).unwrap();
+    let plan: crate::plan::Plan = serde_json::from_value(serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "notebook.edit",
+            "path": "a.ipynb",
+            "cell_id": "load",
+            "source": "import pandas as pd\n"
+        }]
+    }))
+    .unwrap();
+    let report = crate::tx::execute_plan_direct(plan, dir.path(), None).unwrap();
+    assert!(report.applied, "{report:?}");
+    let text = std::fs::read_to_string(dir.path().join("a.ipynb")).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(v["cells"][0]["source"][0], "import pandas as pd\n");
+    assert_eq!(v["nbformat"], 4);
+}
+
+#[test]
+fn notebook_edit_missing_cell_is_no_matches() {
+    let dir = TempDir::new().unwrap();
+    std::fs::write(dir.path().join("a.ipynb"), NOTEBOOK).unwrap();
+    let plan: crate::plan::Plan = serde_json::from_value(serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "notebook.edit",
+            "path": "a.ipynb",
+            "id": "missing",
+            "source": "x\n"
+        }]
+    }))
+    .unwrap();
+    let report = crate::tx::execute_plan_direct(plan, dir.path(), None).unwrap();
+    assert_eq!(
+        report.error_kind.as_deref(),
+        Some("no_matches"),
+        "{report:?}"
+    );
+    assert!(!report.applied, "{report:?}");
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("a.ipynb")).unwrap(),
+        NOTEBOOK
+    );
+}

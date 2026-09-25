@@ -308,6 +308,9 @@ pub(super) fn describe_operation(op: &Operation) -> String {
         Operation::FilePrepend { path, .. } => {
             format!("Prepend content to {path}")
         }
+        Operation::NotebookEdit { path, cell_id, .. } => {
+            format!("Replace source of notebook cell {cell_id} in {path}")
+        }
         Operation::FileCreate { path, force, .. } => {
             let force_str = if *force == Some(true) {
                 " (overwrite)"

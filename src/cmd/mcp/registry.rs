@@ -270,6 +270,19 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
         ],
     },
     McpToolMeta {
+        tool_name: "notebook_edit",
+        op_name: "notebook.edit",
+        extra: Some(
+            "Address the cell by its id, not by index. source is the whole new cell body as one string. Does not run the cell.",
+        ),
+        has_strict: false,
+        validations: &[
+            FieldValidation::Path("path"),
+            FieldValidation::ParamSize("cell_id"),
+            FieldValidation::ContentSize("source"),
+        ],
+    },
+    McpToolMeta {
         tool_name: "append_file",
         op_name: "file.append",
         extra: None,

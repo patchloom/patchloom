@@ -14,6 +14,42 @@ fn test_tx_check_broken_pipe_is_not_a_panic() {
 }
 
 #[test]
+fn test_tx_notebook_edit_replaces_cell_and_keeps_the_rest() {
+    let dir = TempDir::new().unwrap();
+    let nb = dir.path().join("a.ipynb");
+    fs::write(
+        &nb,
+        r#"{"cells":[{"cell_type":"code","id":"load","metadata":{},"outputs":[{"output_type":"stream","name":"stdout","text":["ok\n"]}],"source":["import pandas\n"]}],"nbformat":4,"nbformat_minor":5}"#,
+    )
+    .unwrap();
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "notebook.edit",
+            "path": "a.ipynb",
+            "cell_id": "load",
+            "source": "import pandas as pd\n"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("tx")
+        .arg("--apply")
+        .arg(plan_file.to_str().unwrap())
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let text = fs::read_to_string(&nb).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(v["cells"][0]["source"][0], "import pandas as pd\n");
+    assert_eq!(v["cells"][0]["outputs"][0]["text"][0], "ok\n");
+}
+
+#[test]
 fn test_tx_replace_empty_from_rejected() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
