@@ -11,6 +11,34 @@ present (applied to the GitHub Release body by the host job). Versioned
 sections below are managed by release-please.
 
 
+## [0.37.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.36.0...patchloom-v0.37.0) (2026-09-25)
+
+
+### Features
+
+* agent read windows, content hash, preset, compact MCP JSON ([#2625](https://github.com/patchloom/patchloom/issues/2625)) ([4691cc2](https://github.com/patchloom/patchloom/commit/4691cc2db21c602e588785720e1209ced547bcc6))
+* replace one notebook cell source by id ([#2628](https://github.com/patchloom/patchloom/issues/2628)) ([518597c](https://github.com/patchloom/patchloom/commit/518597c03560b04362ce80898792810b8b0a527a))
+* slim execute_plan schema and add operation_schema ([#2631](https://github.com/patchloom/patchloom/issues/2631)) ([0e3f2e3](https://github.com/patchloom/patchloom/commit/0e3f2e3a7396ab76a250441e844a5c96245ed587))
+
+
+### Bug Fixes
+
+* Begin Patch numbered @@, lint path, delete if_exists ([#2606](https://github.com/patchloom/patchloom/issues/2606)) ([6fc9aaa](https://github.com/patchloom/patchloom/commit/6fc9aaa0db0064d835f5e8b997e0bfd5625b77ad)), closes [#2603](https://github.com/patchloom/patchloom/issues/2603) [#2604](https://github.com/patchloom/patchloom/issues/2604) [#2605](https://github.com/patchloom/patchloom/issues/2605)
+* **doc:** stop quoting .properties and .ini values ([#2623](https://github.com/patchloom/patchloom/issues/2623)) ([135fadc](https://github.com/patchloom/patchloom/commit/135fadccc9f260818b2dd2ab3b6f2d631ae78eda)), closes [#2612](https://github.com/patchloom/patchloom/issues/2612)
+* honor content hash on expanded writes and plan read past EOF ([#2626](https://github.com/patchloom/patchloom/issues/2626)) ([620641a](https://github.com/patchloom/patchloom/commit/620641a02ca831f3c10747eb2485957a30240dd2))
+* keep a plain body line that matches a heading query ([#2638](https://github.com/patchloom/patchloom/issues/2638)) ([6837a25](https://github.com/patchloom/patchloom/commit/6837a25a34f4ca5faec0946f1957f5b3a3211931)), closes [#2637](https://github.com/patchloom/patchloom/issues/2637)
+* keep hash, preset, and EOL checks on the bytes agents sent ([#2636](https://github.com/patchloom/patchloom/issues/2636)) ([47dd50a](https://github.com/patchloom/patchloom/commit/47dd50abb3498dee2597561c8220e117181ca5df)), closes [#2632](https://github.com/patchloom/patchloom/issues/2632) [#2633](https://github.com/patchloom/patchloom/issues/2633) [#2634](https://github.com/patchloom/patchloom/issues/2634) [#2635](https://github.com/patchloom/patchloom/issues/2635)
+* **mcp:** serialize tool writes so pipelined calls all land ([#2621](https://github.com/patchloom/patchloom/issues/2621)) ([8e3b306](https://github.com/patchloom/patchloom/commit/8e3b306b2a718ecf38dc63bdd3a6784c6b0a1ffd)), closes [#2610](https://github.com/patchloom/patchloom/issues/2610)
+* **patch:** skip git file-header meta in Begin Patch hunks ([#2608](https://github.com/patchloom/patchloom/issues/2608)) ([8a89d36](https://github.com/patchloom/patchloom/commit/8a89d3653bbb05251290c60500478a07e0bfdb5c))
+* **patch:** skip git rename/copy meta in Begin Patch hunks ([#2609](https://github.com/patchloom/patchloom/issues/2609)) ([8d47c47](https://github.com/patchloom/patchloom/commit/8d47c47a2ad4de187f5d18f9e96b29974599bc3d))
+* **replace:** keep CRLF files uniform when the needle is LF ([#2622](https://github.com/patchloom/patchloom/issues/2622)) ([47f9a19](https://github.com/patchloom/patchloom/commit/47f9a19868b2cdd1ae48cafd5957c22d714b9114)), closes [#2613](https://github.com/patchloom/patchloom/issues/2613)
+* tidy a directory's hidden files from a plan ([#2640](https://github.com/patchloom/patchloom/issues/2640)) ([bf3e813](https://github.com/patchloom/patchloom/commit/bf3e813e58d5d1132cfd55d06a22ad7a6190305b)), closes [#2639](https://github.com/patchloom/patchloom/issues/2639)
+
+
+### Performance Improvements
+
+* look up source lines from one line-start table ([#2624](https://github.com/patchloom/patchloom/issues/2624)) ([d19f1e2](https://github.com/patchloom/patchloom/commit/d19f1e27b9b3d96a2a8ffdac64754d8c5afcc046)), closes [#2611](https://github.com/patchloom/patchloom/issues/2611)
+
 ## [0.36.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.35.1...patchloom-v0.36.0) (2026-09-20)
 
 
