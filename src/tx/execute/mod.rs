@@ -757,7 +757,12 @@ pub(crate) fn execute_doc_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
     }
 }
 
-/// Hash-check one relative path. No map, or no entry for `rel`, is a skip.
+/// Hash-check one relative path against its pre-plan text.
+///
+/// No map, or no entry for `rel`, is a skip. A path already staged in
+/// `pending` is checked from the original slot (the bytes loaded from
+/// disk), not the body later ops have written. A second edit of the same
+/// file must not look stale (#2632).
 pub(crate) fn enforce_expected_sha256(rel: &str, tx: &TxState<'_>) -> anyhow::Result<()> {
     let Some(expected) = tx.expected_sha256 else {
         return Ok(());
@@ -773,8 +778,12 @@ pub(crate) fn enforce_expected_sha256(rel: &str, tx: &TxState<'_>) -> anyhow::Re
         .into());
     }
     let abs = tx.cwd.join(rel);
-    let got = if let Some((_, content)) = tx.pending.get(&abs) {
-        Some(content.clone())
+    let got = if let Some((original, _)) = tx.pending.get(&abs) {
+        if tx.existed_before.contains(&abs) {
+            Some(original.clone())
+        } else {
+            None
+        }
     } else if abs.is_file() {
         match crate::files::load_text_strict(&abs, rel) {
             Ok(text) => Some(text),

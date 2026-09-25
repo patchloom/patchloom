@@ -960,15 +960,19 @@ pub fn replace_content<'a>(
     })
 }
 
-/// When the file is CRLF and a literal side uses bare LF, match and splice
-/// with CRLF. A side that already contains `\r` is left alone.
+/// When the file is uniformly CRLF and a literal side uses bare LF, match
+/// and splice with CRLF. Mixed endings stay exact bytes: a CRLF-majority
+/// file can still contain a bare-LF span (#2634). A side that already
+/// contains `\r` is left alone.
 fn adapt_literal_to_file_eol<'a>(
     content: &str,
     from: &'a str,
     to: &'a str,
 ) -> (std::borrow::Cow<'a, str>, std::borrow::Cow<'a, str>) {
     use std::borrow::Cow;
-    if crate::write::detect_eol(content) != "\r\n" {
+    if crate::write::detect_eol(content) != "\r\n"
+        || crate::write::has_mixed_eol(content.as_bytes())
+    {
         return (Cow::Borrowed(from), Cow::Borrowed(to));
     }
     (lf_only_to_crlf(from), lf_only_to_crlf(to))

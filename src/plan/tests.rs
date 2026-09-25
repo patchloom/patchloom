@@ -933,6 +933,30 @@ fn parse_plan_collects_unknown_keys_without_failing() {
     );
 }
 
+#[test]
+fn parse_plan_agent_preset_and_expected_sha256_are_known() {
+    let json = r#"{
+        "version": 1,
+        "agent_preset": true,
+        "expected_sha256": {"a.txt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+        "operations": [{"op": "replace", "path": "a.txt", "old": "hello", "new": "hi", "regexp": true}]
+    }"#;
+    let plan = parse_plan(json).expect("known plan keys must parse");
+    assert!(plan.agent_preset);
+    assert!(plan.expected_sha256.is_some());
+    let warns = take_unknown_plan_key_warnings();
+    assert!(
+        !warns
+            .iter()
+            .any(|w| w.contains("agent_preset") || w.contains("expected_sha256")),
+        "applied plan keys must not warn: {warns:?}"
+    );
+    assert!(
+        warns.iter().any(|w| w.contains("regexp")),
+        "unknown op keys must still warn: {warns:?}"
+    );
+}
+
 /// Extra metadata must still apply; --check / apply stay successful (#2486).
 /// Needs the tx engine (`cli` or `files`); parse-only lock is the sibling above.
 #[cfg(any(feature = "cli", feature = "files"))]

@@ -1583,6 +1583,56 @@ fn expected_sha256_tidy_dir_mismatch_is_stale_and_does_not_write() {
 }
 
 #[test]
+fn expected_sha256_second_edit_uses_pre_plan_bytes() {
+    let dir = TempDir::new().unwrap();
+    let body = "hello\nworld\n";
+    std::fs::write(dir.path().join("f.txt"), body).unwrap();
+    let hash = crate::ops::read::sha256_hex(body.as_bytes());
+    let plan: crate::plan::Plan = serde_json::from_value(serde_json::json!({
+        "version": 1,
+        "expected_sha256": {"f.txt": hash},
+        "operations": [
+            {"op": "replace", "path": "f.txt", "old": "hello", "new": "HELLO"},
+            {"op": "replace", "path": "f.txt", "old": "world", "new": "WORLD"}
+        ]
+    }))
+    .unwrap();
+    let report = crate::tx::execute_plan_direct(plan, dir.path(), None).unwrap();
+    assert!(report.ok, "{report:?}");
+    assert!(report.applied, "{report:?}");
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("f.txt")).unwrap(),
+        "HELLO\nWORLD\n"
+    );
+}
+
+#[test]
+fn expected_sha256_for_each_two_edits_uses_pre_plan_bytes() {
+    let dir = TempDir::new().unwrap();
+    let body = "hello\nworld\n";
+    std::fs::create_dir(dir.path().join("fe")).unwrap();
+    std::fs::write(dir.path().join("fe/a.txt"), body).unwrap();
+    let hash = crate::ops::read::sha256_hex(body.as_bytes());
+    let plan: crate::plan::Plan = serde_json::from_value(serde_json::json!({
+        "version": 1,
+        "expected_sha256": {"fe/a.txt": hash},
+        "for_each": {"glob": "fe/*.txt"},
+        "operations": [
+            {"op": "replace", "path": "{path}", "old": "hello", "new": "HELLO"},
+            {"op": "replace", "path": "{path}", "old": "world", "new": "WORLD"}
+        ]
+    }))
+    .unwrap();
+    let report = crate::tx::execute_plan_direct(plan, dir.path(), None).unwrap();
+    assert!(report.ok, "{report:?}");
+    assert!(report.applied, "{report:?}");
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("fe/a.txt")).unwrap(),
+        "HELLO\nWORLD\n"
+    );
+}
+
+#[test]
 fn agent_preset_rejects_a_second_match() {
     let dir = TempDir::new().unwrap();
     std::fs::write(dir.path().join("f.txt"), "foo\nfoo\n").unwrap();
@@ -1603,6 +1653,70 @@ fn agent_preset_rejects_a_second_match() {
         std::fs::read_to_string(dir.path().join("f.txt")).unwrap(),
         "foo\nfoo\n"
     );
+}
+
+#[test]
+fn agent_preset_command_position_replaces_one_token() {
+    let dir = TempDir::new().unwrap();
+    std::fs::write(dir.path().join("sh.txt"), "pip install\n").unwrap();
+    let plan: crate::plan::Plan = serde_json::from_value(serde_json::json!({
+        "version": 1,
+        "agent_preset": true,
+        "operations": [{
+            "op": "replace",
+            "path": "sh.txt",
+            "old": "pip",
+            "new": "uv",
+            "command_position": true
+        }]
+    }))
+    .unwrap();
+    let report = crate::tx::execute_plan_direct(plan, dir.path(), None).unwrap();
+    assert!(report.ok, "{report:?}");
+    assert!(report.applied, "{report:?}");
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("sh.txt")).unwrap(),
+        "uv install\n"
+    );
+}
+
+#[test]
+fn command_position_explicit_fuzzy_stays_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    std::fs::write(dir.path().join("sh.txt"), "pip install\n").unwrap();
+    for preset in [false, true] {
+        let plan: crate::plan::Plan = serde_json::from_value(serde_json::json!({
+            "version": 1,
+            "agent_preset": preset,
+            "operations": [{
+                "op": "replace",
+                "path": "sh.txt",
+                "old": "pip",
+                "new": "uv",
+                "command_position": true,
+                "fuzzy": true
+            }]
+        }))
+        .unwrap();
+        let report = crate::tx::execute_plan_direct(plan, dir.path(), None).unwrap();
+        assert_eq!(
+            report.error_kind.as_deref(),
+            Some("invalid_input"),
+            "preset={preset}: {report:?}"
+        );
+        assert!(
+            report
+                .error
+                .as_deref()
+                .unwrap_or("")
+                .contains("command_position cannot be combined"),
+            "preset={preset}: {report:?}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("sh.txt")).unwrap(),
+            "pip install\n"
+        );
+    }
 }
 
 const NOTEBOOK: &str = r#"{
