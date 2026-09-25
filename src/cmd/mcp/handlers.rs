@@ -975,7 +975,24 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Execute an arbitrary multi-step transaction plan atomically (MCP equivalent of `patchloom tx`). Provide either an inline 'plan' object or a 'plan_path' to a plan file. Supports mixed operations (doc.*, md.*, replace, file create/delete/rename, tidy, patch, etc). Plan field for the op list is `operations` (alias `ops` accepted). Optional plan.cwd must be a relative path under the server workspace (re-roots relative op paths); absolute plan.cwd strings and ../ escapes are rejected. Op path fields may use absolute paths that resolve inside the workspace (AllowIfContained). Do not set both plan.cwd and for_each. plan.format/validate lifecycle shell steps are ignored on MCP (use project config). Strongly recommended for multi-file or multi-op work. See agent-rules --mode mcp or PATCHLOOM.md for plan schema examples. Nested example: {\"plan\": {\"version\": 1, \"cwd\": \"fixtures/svc\", \"operations\": [{\"op\": \"doc.set\", \"path\": \"configs/app.yaml\", \"selector\": \"name\", \"value\": \"x\"}]}}"
+        description = "Return the JSON schema for one plan operation. Pass op, for example doc.set. Use this for execute_plan field names. Does not run the operation. Example: {\"op\": \"doc.set\"}"
+    )]
+    async fn operation_schema(
+        &self,
+        Parameters(p): Parameters<OperationSchemaParams>,
+    ) -> Result<CallToolResult, McpError> {
+        match crate::schema::operation_variant_schema(&p.op) {
+            Ok(schema) => json_tool_result(&serde_json::json!({
+                "ok": true,
+                "op": p.op,
+                "schema": schema,
+            })),
+            Err(e) => Err(McpError::invalid_params(e.to_string(), None)),
+        }
+    }
+
+    #[tool(
+        description = "Execute a multi-step transaction plan atomically (MCP equivalent of `patchloom tx`). Provide an inline plan object or a plan_path. plan requires version and operations (alias ops). Each operation requires string op. Other plan and op fields are allowed. Call operation_schema with the op name for that operation's fields. Optional plan.cwd must be a relative path under the server workspace. Absolute plan.cwd and ../ escapes are rejected. Do not set both plan.cwd and for_each. plan.format/validate are ignored on MCP. Example: {\"plan\": {\"version\": 1, \"operations\": [{\"op\": \"doc.set\", \"path\": \"app.yaml\", \"selector\": \"name\", \"value\": \"x\"}]}}"
     )]
     async fn execute_plan(
         &self,
@@ -983,7 +1000,7 @@ impl PatchloomService {
     ) -> Result<CallToolResult, McpError> {
         self.blocking(move |svc| {
             let mut plan = if let Some(inline_plan) = p.plan {
-                inline_plan
+                inline_plan.0
             } else if let Some(path) = &p.plan_path {
                 svc.check_path(path)?;
                 let abs = svc.cwd().join(path);

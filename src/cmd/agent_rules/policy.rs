@@ -57,8 +57,10 @@ only the core pack ({core_tools}). Prefer core alone for list+edit (no second fi
 `PATCHLOOM_MCP_SURFACE=full` or unset keeps the full inventory. `server_info` reports \
 `cwd`, `surface`, `tool_count`, package `version`, and MCP `protocol_version`. \
 Handshake instructions are surface-aware (core does not list \
-full-only tool names). `execute_plan` on core can still run full plan ops; the env reduces \
-tool schema size, not the plan catalog. See docs/plans/mcp-surface-tiers.md.\n\n"
+full-only tool names). `execute_plan` on core can still run full plan ops; its tool schema does not \
+list every operation's fields. Call `operation_schema` with the op name for those \
+fields. The env reduces tool schema size, not the plan catalog. See \
+docs/plans/mcp-surface-tiers.md.\n\n"
     ));
 
     // When to use

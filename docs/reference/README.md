@@ -466,7 +466,7 @@ Patchloom can be used as a Rust library (disable default `cli` feature for small
   - `--allow-unauthenticated`: Permit HTTP on a non-loopback bind. Streamable HTTP has no token.
   - `--allowed-host <name>`: Extra Host header name or IP to accept (requires `--http`; repeatable). The Host allowlist stays on for non-loopback binds. Defaults are `localhost`, `127.0.0.1`, and `::1`.
   - `--tls-cert <path>` / `--tls-key <path>`: TLS certificate and key PEM files for HTTPS (requires `--http`; both must be provided together).
-- **Environment:** `PATCHLOOM_MCP_SURFACE=core|full` (env only; no CLI flag). Unset or `full` keeps the full inventory (product default). `core` registers the 11-tool pack for small agents. See [README.md](../../README.md) (MCP / coding agents).
+- **Environment:** `PATCHLOOM_MCP_SURFACE=core|full` (env only; no CLI flag). Unset or `full` keeps the full inventory (product default). `core` registers the 12-tool pack for small agents. See [README.md](../../README.md) (MCP / coding agents).
 - **Failure behavior:** Invalid bind address, TLS config, or unauthenticated non-loopback `--host` without `--allow-unauthenticated` fails startup with `error_kind: "invalid_input"` when surfaced through typed error paths.
 - **Prefer instead:** Use the CLI directly when the agent does not support MCP, or when patchloom is invoked from scripts and CI.
 - **Related:** `batch`, `tx`

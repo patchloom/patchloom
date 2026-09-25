@@ -30,6 +30,7 @@ pub(crate) const CORE_MCP_TOOL_NAMES: &[&str] = &[
     "doc_query",
     "md_replace_section",
     "execute_plan",
+    "operation_schema",
     "server_info",
 ];
 
@@ -53,6 +54,7 @@ fn canonical_name_map_markdown_for_surface(full_ast_tools: bool) -> &'static str
 | Intent | CLI | Plan op (`execute_plan`) | MCP tool |\n\
 |--------|-----|--------------------------|----------|\n\
 | multi-op atomic | `tx` | (plan root) | `execute_plan` |\n\
+| one op's fields | `schema` | n/a | `operation_schema` |\n\
 | identifier rename | `ast rename` | `ast.rename` | `ast_rename` or plan via `execute_plan` |\n\
 | structured single path | `doc set` | `doc.set` | `doc_set` |\n\
 | structured multi-match (predicate/wildcard) | `doc update` | `doc.update` | `doc_update` |\n\
@@ -70,6 +72,7 @@ patchloom usage.\n\n"
 | Intent | CLI | Plan op (`execute_plan`) | MCP tool (core pack) |\n\
 |--------|-----|--------------------------|----------------------|\n\
 | multi-op atomic | `tx` | (plan root) | `execute_plan` |\n\
+| one op's fields | `schema` | n/a | `operation_schema` |\n\
 | identifier rename | `ast rename` | `ast.rename` | plan via `execute_plan` only (no standalone `ast_*` on core) |\n\
 | structured single path | `doc set` | `doc.set` | `doc_set` |\n\
 | structured multi-match (predicate/wildcard) | `doc update` | `doc.update` | plan via `execute_plan` only (no standalone `doc_update` on core) |\n\
@@ -263,7 +266,7 @@ mod tests {
                 "core body missing tool {name} from CORE_MCP_TOOL_NAMES"
             );
         }
-        assert_eq!(CORE_MCP_TOOL_NAMES.len(), 11);
+        assert_eq!(CORE_MCP_TOOL_NAMES.len(), 12);
     }
 
     #[test]

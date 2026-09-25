@@ -1,4 +1,5 @@
 // Parameter structs for MCP tools with custom handler logic.
+// size-waiver: MCP parameter structs and co-located deserializer tests #2615
 //
 // Simple 1:1 Operation-mapped tools (doc_set, doc_delete, doc_merge, doc_append,
 // doc_prepend, doc_ensure, doc_delete_where, doc_update, doc_move, read_file,
@@ -862,6 +863,14 @@ pub(crate) struct AstSplitTargetParam {
     pub prepend: Option<String>,
 }
 
+/// One plan operation name. Returns that operation's JSON schema.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct OperationSchemaParams {
+    /// Plan operation name, for example `doc.set`.
+    pub op: String,
+}
+
 /// No-parameter wrapper for tools that need no input (e.g., git_status).
 /// Required because rmcp 1.8+ validates that `inputSchema` has a root
 /// `type: "object"` field, which `serde_json::Value` does not provide.
@@ -869,14 +878,57 @@ pub(crate) struct AstSplitTargetParam {
 #[serde(deny_unknown_fields)]
 pub(crate) struct EmptyParams {}
 
+/// MCP `execute_plan.plan`. Deserializes as [`Plan`]. The published schema
+/// does not inline every operation (#2615).
+#[derive(Debug, Deserialize)]
+#[serde(transparent)]
+pub(crate) struct InlinePlan(pub Plan);
+
+impl schemars::JsonSchema for InlinePlan {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("InlinePlan")
+    }
+
+    fn schema_id() -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed(concat!(module_path!(), "::InlinePlan"))
+    }
+
+    fn inline_schema() -> bool {
+        true
+    }
+
+    fn json_schema(_gen: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({
+            "type": "object",
+            "description": "Transaction plan. version and operations are required. Each operation requires string op. Other fields are allowed. The operations list may be sent as ops.",
+            "required": ["version", "operations"],
+            "additionalProperties": true,
+            "properties": {
+                "version": { "type": "integer" },
+                "operations": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": ["op"],
+                        "additionalProperties": true,
+                        "properties": {
+                            "op": { "type": "string" }
+                        }
+                    }
+                }
+            }
+        })
+    }
+}
+
 /// Parameters for executing a full multi-step transaction plan.
 /// This is the MCP equivalent of `patchloom tx`.
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ExecutePlanParams {
-    /// Full inline plan object (preferred for agents; same schema as CLI tx plans).
-    /// Must contain at minimum `version` and `operations` (alias `ops` also accepted).
-    pub plan: Option<Plan>,
+    /// Inline plan object. Field details for one op come from `operation_schema`.
+    /// `operations` may be sent as `ops`.
+    pub plan: Option<InlinePlan>,
     /// Path (relative to cwd) to a plan file (JSON, YAML, or TOML).
     /// Used only if `plan` is not provided.
     pub plan_path: Option<String>,
@@ -939,7 +991,7 @@ mod tests {
             serde_json::from_str(r#"{"plan":{"version":1,"strict":false,"operations":[]}}"#)
                 .expect("plan-only payload must deserialize");
         assert_eq!(p.strict, None, "omitted top-level strict must stay None");
-        let mut plan = p.plan.expect("inline plan");
+        let mut plan = p.plan.expect("inline plan").0;
         assert_eq!(plan.strict, Some(false));
         apply_execute_plan_strict_override(&mut plan, p.strict);
         assert_eq!(
@@ -956,8 +1008,36 @@ mod tests {
         )
         .expect("top-level strict must deserialize");
         assert_eq!(p.strict, Some(true));
-        let mut plan = p.plan.expect("inline plan");
+        let mut plan = p.plan.expect("inline plan").0;
         apply_execute_plan_strict_override(&mut plan, p.strict);
         assert_eq!(plan.strict, Some(true));
+    }
+
+    #[test]
+    fn execute_plan_params_accept_ops_alias() {
+        let p: ExecutePlanParams = serde_json::from_str(
+            r#"{"plan":{"version":1,"ops":[{"op":"replace","path":"a.txt","old":"a","new":"b"}]}}"#,
+        )
+        .expect("ops alias must deserialize");
+        assert_eq!(p.plan.expect("plan").0.operations.len(), 1);
+    }
+
+    #[test]
+    fn execute_plan_schema_does_not_inline_operation_oneof() {
+        let schema = schemars::schema_for!(ExecutePlanParams);
+        let text = serde_json::to_string(&schema).expect("schema json");
+        assert!(!text.contains("$defs"), "schema inlined defs: {text}");
+        assert!(!text.contains("doc.set"), "schema named an op: {text}");
+        assert!(text.contains("operations"), "{text}");
+        assert!(text.contains("\"op\""), "{text}");
+    }
+
+    #[test]
+    fn operation_schema_params_are_one_string() {
+        let schema = schemars::schema_for!(OperationSchemaParams);
+        let text = serde_json::to_string(&schema).expect("schema json");
+        assert!(text.contains("\"op\""), "{text}");
+        assert!(!text.contains("oneOf"), "{text}");
+        assert!(!text.contains("$defs"), "{text}");
     }
 }

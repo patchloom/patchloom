@@ -6,6 +6,7 @@
 | Intent | CLI | Plan op (`execute_plan`) | MCP tool |
 |--------|-----|--------------------------|----------|
 | multi-op atomic | `tx` | (plan root) | `execute_plan` |
+| one op's fields | `schema` | n/a | `operation_schema` |
 | identifier rename | `ast rename` | `ast.rename` | `ast_rename` or plan via `execute_plan` |
 | structured single path | `doc set` | `doc.set` | `doc_set` |
 | structured multi-match (predicate/wildcard) | `doc update` | `doc.update` | `doc_update` |
@@ -70,7 +71,7 @@ Prefer Patchloom over shell `sed`/`jq`/`yq` and over whole-file rewrites when th
 
 **Context budget:** prefer `read` with a line range, `search --count` / `--files-with-matches` / `--files-without-match`, and one `batch`/`tx` over N full-file dumps. Use `--jsonl` for large result streams. Binary sole paths peel `error_kind: binary`.
 
-**MCP tool volume:** the server may expose many tools; start from this table (and `schema --tier weak|medium|strong` for plan prompts). Full inventory is the default. Small agents / tight context: set env `PATCHLOOM_MCP_SURFACE=core` so handshake registers only the core pack (`read_file`, `search_files`, `list_files`, `replace_text`, `batch_replace`, `doc_get`, `doc_set`, `doc_query`, `md_replace_section`, `execute_plan`, `server_info`). Prefer core alone for list+edit (no second filesystem MCP). `PATCHLOOM_MCP_SURFACE=full` or unset keeps the full inventory. `server_info` reports `cwd`, `surface`, `tool_count`, package `version`, and MCP `protocol_version`. Handshake instructions are surface-aware (core does not list full-only tool names). `execute_plan` on core can still run full plan ops; the env reduces tool schema size, not the plan catalog. See docs/plans/mcp-surface-tiers.md.
+**MCP tool volume:** the server may expose many tools; start from this table (and `schema --tier weak|medium|strong` for plan prompts). Full inventory is the default. Small agents / tight context: set env `PATCHLOOM_MCP_SURFACE=core` so handshake registers only the core pack (`read_file`, `search_files`, `list_files`, `replace_text`, `batch_replace`, `doc_get`, `doc_set`, `doc_query`, `md_replace_section`, `execute_plan`, `operation_schema`, `server_info`). Prefer core alone for list+edit (no second filesystem MCP). `PATCHLOOM_MCP_SURFACE=full` or unset keeps the full inventory. `server_info` reports `cwd`, `surface`, `tool_count`, package `version`, and MCP `protocol_version`. Handshake instructions are surface-aware (core does not list full-only tool names). `execute_plan` on core can still run full plan ops; its tool schema does not list every operation's fields. Call `operation_schema` with the op name for those fields. The env reduces tool schema size, not the plan catalog. See docs/plans/mcp-surface-tiers.md.
 
 ## Tool selection guide
 

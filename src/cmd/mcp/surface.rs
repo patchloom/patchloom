@@ -104,6 +104,11 @@ pub(super) const CUSTOM_MCP_TOOLS_CORE: &[CustomMcpTool] = &[
         why: "full transaction plan (inline or path), not one Operation",
         kind: CustomKind::MultiOp,
     },
+    CustomMcpTool {
+        name: "operation_schema",
+        why: "on-demand JSON schema for one plan op; not a write",
+        kind: CustomKind::Meta,
+    },
     // --- Md custom ---
     CustomMcpTool {
         name: "md_move_section",
@@ -388,13 +393,13 @@ mod tests {
         // Core tools always; AST tools only with `ast` (matches list_tools registration).
         let registry_n = MCP_TOOL_REGISTRY.len();
         let custom_n = custom_mcp_tools().count();
-        let expected_total = if cfg!(feature = "ast") { 65 } else { 43 };
+        let expected_total = if cfg!(feature = "ast") { 66 } else { 44 };
         assert_eq!(
             registry_n + custom_n,
             expected_total,
             "registry ({registry_n}) + custom ({custom_n}) must equal total MCP tools ({expected_total})"
         );
-        assert_eq!(CUSTOM_MCP_TOOLS_CORE.len(), 18, "core custom tool count");
+        assert_eq!(CUSTOM_MCP_TOOLS_CORE.len(), 19, "core custom tool count");
         #[cfg(feature = "ast")]
         assert_eq!(CUSTOM_MCP_TOOLS_AST.len(), 20, "ast custom tool count");
         #[cfg(not(feature = "ast"))]
@@ -503,6 +508,7 @@ mod tests {
         ("git_status", "CLI status"),
         ("undo_list", "CLI undo --list"),
         ("explain_plan", "CLI explain"),
+        ("operation_schema", "CLI schema for one plan op"),
         ("tidy_check", "CLI tidy check"),
     ];
 

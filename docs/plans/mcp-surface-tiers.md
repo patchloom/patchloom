@@ -17,7 +17,7 @@ Exactly these tools (AST off):
 
 - `read_file`, `search_files`, `list_files`, `replace_text`, `batch_replace`
 - `doc_get`, `doc_set`, `doc_query`
-- `md_replace_section`, `execute_plan`, `server_info`
+- `md_replace_section`, `execute_plan`, `operation_schema`, `server_info`
 
 Defined in `src/cmd/mcp/surface.rs` as `CORE_MCP_TOOL_NAMES` / `McpSurface`.
 
@@ -27,10 +27,11 @@ Handshake `instructions` (MCP `ServerInfo`) are surface-aware: core mode lists
 only the core tools and names `PATCHLOOM_MCP_SURFACE=core`, so agents do not
 chase full-inventory tool names that are not registered.
 
-`execute_plan` stays in the core pack so multi-op atomicity still works. Plan
-ops are not filtered by surface: a host can still send `file.create` inside a
-plan. The env flag is a **tool schema** progressive disclosure, not a plan
-capability sandbox.
+`execute_plan` stays in the core pack so multi-op atomicity still works. Its
+published schema does not list every operation's fields. `operation_schema`
+returns one operation's schema. Plan ops are not filtered by surface: a host
+can still send `file.create` inside a plan. The env flag is a **tool schema**
+progressive disclosure, not a plan capability sandbox.
 
 ## Non-goals
 
