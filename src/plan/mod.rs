@@ -757,7 +757,6 @@ pub fn expand_for_each(plan: &mut Plan, cwd: &std::path::Path) -> anyhow::Result
     plan.operations = expanded;
     Ok(())
 }
-
 /// True when the protected for_each template JSON still contains a match
 /// variable (not escaped as `{{…}}`).
 #[cfg(feature = "files")]
