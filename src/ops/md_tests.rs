@@ -134,6 +134,15 @@ mod basic {
     }
 
     #[test]
+    fn replace_section_keeps_plain_line_matching_heading_text() {
+        let content = "# Title\n\nold\n";
+        let result = replace_section_in(content, "Title", "Title\nare important\n").unwrap();
+        assert_eq!(result, "# Title\nTitle\nare important\n");
+        let echoed = replace_section_in(content, "Title", "# Title\nNew\n").unwrap();
+        assert_eq!(echoed, "# Title\nNew\n");
+    }
+
+    #[test]
     fn replace_section_strips_duplicate_heading_level2() {
         let content = "# Doc\n\n## Usage\n\nOld usage.\n\n## Contributing\n\nPRs welcome.\n";
         let result = replace_section_in(content, "## Usage", "## Usage\n\nNew usage.").unwrap();
