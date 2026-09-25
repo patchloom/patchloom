@@ -1324,6 +1324,14 @@ The operations below are the building blocks inside `operations`.
 - **Use when:** Adding a header, license, or shebang line must be atomic with other operations in the same plan. Fails if the file does not exist.
 - **Related:** `file.append`, top level `append`
 
+<!-- ref:tx-op:notebook.edit -->
+### `notebook.edit`
+
+- **What it does:** Replaces the source of one Jupyter cell inside a transaction, addressed by the cell `id`. The new body is one string and is stored as an nbformat array of lines. Cell type, outputs, and the rest of the file stay put. The cell is not run.
+- **Use when:** An agent should change one notebook cell without editing the raw JSON `source` array through `doc.set`.
+- **Failure behavior:** A missing cell id is `no_matches`. A duplicate id is `ambiguous`. A missing file is `not_found`. Invalid notebook JSON is `parse_error`. The same body does not rewrite the file.
+- **Related:** `doc.set` for JSON that is not a notebook cell
+
 <!-- ref:tx-op:file.create -->
 ### `file.create`
 

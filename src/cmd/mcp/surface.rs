@@ -388,7 +388,7 @@ mod tests {
         // Core tools always; AST tools only with `ast` (matches list_tools registration).
         let registry_n = MCP_TOOL_REGISTRY.len();
         let custom_n = custom_mcp_tools().count();
-        let expected_total = if cfg!(feature = "ast") { 64 } else { 42 };
+        let expected_total = if cfg!(feature = "ast") { 65 } else { 43 };
         assert_eq!(
             registry_n + custom_n,
             expected_total,
@@ -529,6 +529,7 @@ mod tests {
                     | "undo_restore"
                     | "replace_text"
                     | "apply_patch"
+                    | "notebook_edit"
             )
     }
 

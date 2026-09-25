@@ -4615,6 +4615,60 @@ async fn test_mcp_replace_whole_line_insert_before_rejected() {
 }
 
 #[tokio::test]
+async fn test_mcp_notebook_edit_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("a.ipynb");
+    fs::write(
+        &file,
+        r#"{"cells":[{"cell_type":"code","id":"load","metadata":{},"outputs":[],"source":["import pandas\n"]}],"nbformat":4,"nbformat_minor":5}"#,
+    )
+    .unwrap();
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "notebook_edit",
+        serde_json::json!({
+            "path": "a.ipynb",
+            "cell_id": "load",
+            "source": "import pandas as pd\n"
+        }),
+    )
+    .await;
+    assert!(!is_error, "notebook_edit should succeed: {val}");
+    assert_eq!(val["ok"], true, "{val}");
+    let text = fs::read_to_string(&file).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(parsed["cells"][0]["source"][0], "import pandas as pd\n");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_notebook_edit_missing_cell_is_error() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("a.ipynb"),
+        r#"{"cells":[{"cell_type":"code","id":"load","metadata":{},"outputs":[],"source":["x\n"]}],"nbformat":4}"#,
+    )
+    .unwrap();
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "notebook_edit",
+        serde_json::json!({"path": "a.ipynb", "cell_id": "nope", "source": "y\n"}),
+    )
+    .await;
+    assert!(is_error, "missing cell should fail: {val}");
+    assert_eq!(val["error_kind"], "no_matches", "{val}");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
 async fn test_mcp_append_file_round_trip() {
     if !has_mcp_support() {
         return;

@@ -234,6 +234,15 @@ const OPERATION_REGISTRY: &[OpMeta] = &[
         )],
     },
     OpMeta {
+        name: "notebook.edit",
+        description: "Replace the source of one Jupyter notebook cell by its id. Pass the new cell body as one string. It is stored as an nbformat array of lines. Cell type, outputs, and the rest of the file stay put. A missing id is no_matches. A duplicate id is ambiguous. This does not run the cell.",
+        tier: Tier::Weak,
+        examples: &[(
+            "Replace a code cell body",
+            r###"{"op":"notebook.edit","path":"analysis.ipynb","cell_id":"load","source":"import pandas as pd\ndf.head()\n"}"###,
+        )],
+    },
+    OpMeta {
         name: "file.create",
         description: "Create a new file with specified content.",
         tier: Tier::Weak,

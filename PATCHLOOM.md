@@ -550,6 +550,7 @@ flags[!deprecated]              # absent, false, or null
 - `apply.fragment`: Constrained freeform fragment apply (#2018). Strips Morph-style // ... existing code ... marker lines from fragment, then inserts or replaces at a required unique anchor (exactly one of after, before, old). Fail-closed: no anchor-less Morph model merge. Prefer for lazy-snippet agent output when anchors are known; use replace/ast for precise edits.
 - `file.append`: Append content to an existing file. Inserts the file's line ending first when the file does not already end with one.
 - `file.prepend`: Prepend content to an existing file. Inserts the file's line ending after the new text when that text does not already end with one.
+- `notebook.edit`: Replace the source of one Jupyter notebook cell by its id. Pass the new cell body as one string. It is stored as an nbformat array of lines. Cell type, outputs, and the rest of the file stay put. A missing id is no_matches. A duplicate id is ambiguous. This does not run the cell.
 - `file.create`: Create a new file with specified content.
 - `file.delete`: Delete a file. Default fails with not_found if the path is missing. Set if_exists=true to soft-skip a missing file (no write, success).
 - `file.rename`: Rename (move) a file.

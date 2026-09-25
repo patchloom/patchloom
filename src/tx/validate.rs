@@ -96,6 +96,7 @@ pub(crate) fn validate_operation(op: &Operation) -> anyhow::Result<()> {
         | Operation::MdDedupeHeadings { .. }
         | Operation::FileAppend { .. }
         | Operation::FilePrepend { .. }
+        | Operation::NotebookEdit { .. }
         | Operation::FileCreate { .. }
         | Operation::FileDelete { .. }
         | Operation::FileRename { .. }

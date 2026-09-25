@@ -402,6 +402,7 @@ pub(crate) fn declared_paths(op: &Operation) -> Vec<String> {
         | Operation::TidyFix { path, .. }
         | Operation::FileAppend { path, .. }
         | Operation::FilePrepend { path, .. }
+        | Operation::NotebookEdit { path, .. }
         | Operation::FileCreate { path, .. }
         | Operation::FileDelete { path, .. }
         | Operation::Read { path, .. }
@@ -756,7 +757,6 @@ pub fn expand_for_each(plan: &mut Plan, cwd: &std::path::Path) -> anyhow::Result
     plan.operations = expanded;
     Ok(())
 }
-
 /// True when the protected for_each template JSON still contains a match
 /// variable (not escaped as `{{…}}`).
 #[cfg(feature = "files")]

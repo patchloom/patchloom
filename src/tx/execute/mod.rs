@@ -20,6 +20,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 mod file_ops;
+mod notebook;
 mod policy;
 #[cfg(test)]
 mod tests;
@@ -861,6 +862,14 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
         // execute_tidy_op extracted to tx/tidy_op.rs (#1359).
         Operation::TidyFix { .. } => {
             return super::tidy_op::execute_tidy_op(op, tx);
+        }
+
+        Operation::NotebookEdit {
+            path,
+            cell_id,
+            source,
+        } => {
+            return notebook::execute(path, cell_id, source, tx);
         }
 
         Operation::FileAppend { .. }
