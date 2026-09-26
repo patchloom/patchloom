@@ -64,7 +64,7 @@ Patchloom is also a Rust library. Add it as a dependency to embed structured fil
 
 ```toml
 [dependencies]
-patchloom = { version = "0.36.0", default-features = false } <!-- x-release-please-version -->
+patchloom = { version = "0.37.0", default-features = false } <!-- x-release-please-version -->
 ```
 
 The `api` module exposes doc, replace, markdown, file, patch, multi-op content
