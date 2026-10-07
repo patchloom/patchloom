@@ -11,6 +11,7 @@
 //! (pipelines, `&&` chains) alive as orphans.
 
 use std::path::Path;
+use std::sync::mpsc;
 use std::time::Duration;
 
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
@@ -66,9 +67,13 @@ pub fn run_with_timeout(cmd: &str, timeout_secs: u64, cwd: &Path) -> anyhow::Res
         .stderr(std::process::Stdio::piped())
         .spawn()?;
 
-    // Read stderr in a background thread to avoid blocking if the pipe fills.
+    // Read stderr on another thread so a full pipe cannot stall the child.
+    // The result arrives on a channel so the caller can stop waiting at the
+    // deadline instead of joining forever when a descendant still holds the
+    // write end (`sleep 30 >&2 &`).
     let stderr_handle = child.stderr.take().expect("stderr piped");
-    let reader_thread = std::thread::spawn(move || {
+    let (stderr_tx, stderr_rx) = mpsc::channel();
+    std::thread::spawn(move || {
         use std::io::Read;
         let mut buf = vec![0u8; STDERR_CAPTURE_MAX + 1];
         let mut reader = stderr_handle;
@@ -90,28 +95,50 @@ pub fn run_with_timeout(cmd: &str, timeout_secs: u64, cwd: &Path) -> anyhow::Res
         }
         let cap = total.min(STDERR_CAPTURE_MAX);
         let text = String::from_utf8_lossy(&buf[..cap]).to_string();
-        if total > STDERR_CAPTURE_MAX {
+        let text = if total > STDERR_CAPTURE_MAX {
             format!("{text}... (truncated)")
         } else {
             text
-        }
+        };
+        let _ = stderr_tx.send(text);
     });
 
     let deadline = std::time::Instant::now() + Duration::from_secs(timeout_secs);
+    let mut status = None;
     loop {
-        if let Some(status) = child.try_wait()? {
-            let stderr_head = reader_thread.join().unwrap_or_default();
-            return Ok(ShellResult {
-                status,
-                stderr_head,
-            });
-        }
         if std::time::Instant::now() >= deadline {
             kill_process_tree(&mut child);
-            let stderr_head = reader_thread.join().unwrap_or_default();
+            let stderr_head = stderr_rx
+                .recv_timeout(Duration::from_millis(500))
+                .unwrap_or_default();
             anyhow::bail!("timed out after {timeout_secs}s: {stderr_head}");
         }
-        std::thread::sleep(POLL_INTERVAL);
+        if status.is_none() {
+            status = child.try_wait()?;
+        }
+        match stderr_rx.recv_timeout(POLL_INTERVAL) {
+            Ok(stderr_head) => {
+                let status = match status.or(child.try_wait()?) {
+                    Some(status) => status,
+                    None => child.wait()?,
+                };
+                return Ok(ShellResult {
+                    status,
+                    stderr_head,
+                });
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                let status = match status.or(child.try_wait()?) {
+                    Some(status) => status,
+                    None => child.wait()?,
+                };
+                return Ok(ShellResult {
+                    status,
+                    stderr_head: String::new(),
+                });
+            }
+        }
     }
 }
 
@@ -185,6 +212,23 @@ mod tests {
         let dir = tempfile::TempDir::new().unwrap();
         let result = run_with_timeout("echo oops >&2", 5, dir.path()).unwrap();
         assert!(result.stderr_head.contains("oops"));
+    }
+
+    #[test]
+    #[cfg(not(windows))]
+    fn run_with_timeout_does_not_hang_when_background_child_holds_stderr() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let started = std::time::Instant::now();
+        let result = run_with_timeout("sleep 30 >&2 &", 1, dir.path());
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "background stderr holder hung the timeout"
+        );
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("timed out"),
+            "expected timeout error, got: {err}"
+        );
     }
 
     #[test]

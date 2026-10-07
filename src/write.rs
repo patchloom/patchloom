@@ -1236,8 +1236,21 @@ fn write_preserving_hardlinks(
     })();
     drop(file);
     if let Err(e) = write_result {
-        // Best-effort restore shared inode from the staged full payload.
-        let _ = std::fs::copy(tmp.path(), path);
+        // Rewrite the shared inode from the staged payload without
+        // `fs::copy`, which truncates the destination before the copy
+        // can fail. If this restore also fails, keep the staged file so
+        // the only complete payload is not deleted.
+        if let Err(restore_err) = restore_shared_inode(path, tmp.path()) {
+            return match tmp.keep() {
+                Ok((_, kept_path)) => Err(e.context(format!(
+                    "hardlink restore failed ({restore_err}); staged payload kept at {}",
+                    kept_path.display()
+                ))),
+                Err(persist_err) => Err(e.context(format!(
+                    "hardlink restore failed ({restore_err}); staged payload could not be kept ({persist_err})"
+                ))),
+            };
+        }
         return Err(e);
     }
 
@@ -1247,6 +1260,18 @@ fn write_preserving_hardlinks(
     }
 
     // NamedTempFile Drop removes the staging file.
+    Ok(())
+}
+
+/// Put `staged` bytes back onto `path` without truncating first.
+fn restore_shared_inode(path: &Path, staged: &Path) -> std::io::Result<()> {
+    use std::io::{Seek, SeekFrom, Write};
+    let bytes = std::fs::read(staged)?;
+    let mut file = std::fs::OpenOptions::new().write(true).open(path)?;
+    file.seek(SeekFrom::Start(0))?;
+    file.write_all(&bytes)?;
+    file.set_len(bytes.len() as u64)?;
+    let _ = file.sync_all();
     Ok(())
 }
 

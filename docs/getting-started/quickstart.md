@@ -263,8 +263,12 @@ Returns:
 ### Config file not loading
 
 Patchloom searches for `.patchloom.toml` starting from the working directory
-and walking up to the filesystem root. If your config does not seem to take
-effect:
+and walking up until it finds a `.git` directory. Inside a git repository it
+loads the config at the repo root. Outside a git repository it still walks
+parents for write policy, but it drops format commands from an ancestor
+config (`[defaults] format`, `[format] command`, `auto`, and `by_extension`).
+A symlink `.patchloom.toml` is refused and is not read. If your config does
+not seem to take effect:
 
 1. **Verify the file location.** Run from the directory containing
    `.patchloom.toml` or a subdirectory beneath it.

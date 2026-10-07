@@ -154,10 +154,15 @@ macro_rules! md_phc {
 
 #[cfg(test)]
 fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
-    parse_line_at(line, line_num, None)
+    parse_line_at(line, line_num, None, None)
 }
 
-fn parse_line_at(line: &str, line_num: usize, cwd: Option<&Path>) -> anyhow::Result<Operation> {
+fn parse_line_at(
+    line: &str,
+    line_num: usize,
+    cwd: Option<&Path>,
+    global: Option<&GlobalFlags>,
+) -> anyhow::Result<Operation> {
     let tokens = tokenize_tokens(line).map_err(|e| {
         anyhow::Error::new(crate::exit::ParseErrorError {
             msg: format!("line {line_num}: {e}"),
@@ -245,7 +250,7 @@ fn parse_line_at(line: &str, line_num: usize, cwd: Option<&Path>) -> anyhow::Res
         }
 
         // -- replace -----------------------------------------------------------
-        "replace" => parse_replace_line(args, line_num, cwd),
+        "replace" => parse_replace_line(args, line_num, cwd, global),
 
         // -- file operations ---------------------------------------------------
         // Content is path + remainder (joined). Agents write unquoted multi-word
@@ -438,15 +443,15 @@ fn parse_line_at(line: &str, line_num: usize, cwd: Option<&Path>) -> anyhow::Res
             })
         }
         #[cfg(feature = "ast")]
-        "ast.insert" => parse_ast_insert(args, line_num, cwd),
+        "ast.insert" => parse_ast_insert(args, line_num, cwd, global),
         #[cfg(feature = "ast")]
-        "ast.wrap" => parse_ast_wrap(args, line_num, cwd),
+        "ast.wrap" => parse_ast_wrap(args, line_num, cwd, global),
         #[cfg(feature = "ast")]
         "ast.imports" => parse_ast_imports(args, line_num),
         #[cfg(feature = "ast")]
         "ast.reorder" => parse_ast_reorder(args, line_num),
         #[cfg(feature = "ast")]
-        "ast.group" => parse_ast_group(args, line_num, cwd),
+        "ast.group" => parse_ast_group(args, line_num, cwd, global),
         #[cfg(feature = "ast")]
         "ast.move" => parse_ast_move(args, line_num),
         #[cfg(feature = "ast")]
@@ -688,6 +693,7 @@ fn path_under_cwd(p: &str, cwd: Option<&Path>) -> std::path::PathBuf {
 fn resolve_at_payload(
     value: &str,
     cwd: Option<&Path>,
+    global: Option<&GlobalFlags>,
     line_num: usize,
     field: &str,
 ) -> anyhow::Result<String> {
@@ -696,6 +702,9 @@ fn resolve_at_payload(
     };
     if rest.is_empty() {
         return Ok(value.to_string());
+    }
+    if let (Some(global), Some(cwd)) = (global, cwd) {
+        global.check_paths_contained(cwd, [rest])?;
     }
     let path = path_under_cwd(rest, cwd);
     if !path.is_file() {
@@ -724,11 +733,12 @@ fn resolve_content_token(
     tok: &BatchToken,
     keys: &[&str],
     cwd: Option<&Path>,
+    global: Option<&GlobalFlags>,
     line_num: usize,
     field: &str,
 ) -> anyhow::Result<String> {
     let raw = peel_owned(tok, keys);
-    resolve_at_payload(&raw, cwd, line_num, field)
+    resolve_at_payload(&raw, cwd, global, line_num, field)
 }
 
 fn split_csv_symbols(raw: &str) -> Vec<String> {
@@ -819,6 +829,7 @@ fn parse_ast_insert(
     args: &[BatchToken],
     line_num: usize,
     cwd: Option<&Path>,
+    global: Option<&GlobalFlags>,
 ) -> anyhow::Result<Operation> {
     let flags = peel_cli_flags(
         args,
@@ -834,12 +845,13 @@ fn parse_ast_insert(
     }
     let path = peel_owned(&flags.positionals[0], &["path"]);
     let content = if let Some(c) = first_flag(&flags, "content") {
-        resolve_at_payload(c, cwd, line_num, "content")?
+        resolve_at_payload(c, cwd, global, line_num, "content")?
     } else if flags.positionals.len() >= 2 {
         resolve_content_token(
             &flags.positionals[1],
             &["content", "body"],
             cwd,
+            global,
             line_num,
             "content",
         )?
@@ -872,6 +884,7 @@ fn parse_ast_wrap(
     args: &[BatchToken],
     line_num: usize,
     cwd: Option<&Path>,
+    global: Option<&GlobalFlags>,
 ) -> anyhow::Result<Operation> {
     let flags = peel_cli_flags(
         args,
@@ -887,12 +900,13 @@ fn parse_ast_wrap(
     }
     let path = peel_owned(&flags.positionals[0], &["path"]);
     let wrapper = if let Some(w) = first_flag(&flags, "wrapper") {
-        resolve_at_payload(w, cwd, line_num, "wrapper")?
+        resolve_at_payload(w, cwd, global, line_num, "wrapper")?
     } else if flags.positionals.len() >= 2 {
         resolve_content_token(
             &flags.positionals[1],
             &["wrapper"],
             cwd,
+            global,
             line_num,
             "wrapper",
         )?
@@ -914,7 +928,7 @@ fn parse_ast_wrap(
         symbols.extend(split_csv_symbols(&raw));
     }
     let preamble = match first_flag(&flags, "preamble") {
-        Some(p) => Some(resolve_at_payload(p, cwd, line_num, "preamble")?),
+        Some(p) => Some(resolve_at_payload(p, cwd, global, line_num, "preamble")?),
         None => None,
     };
     op!(AstWrap {
@@ -1009,6 +1023,7 @@ fn parse_ast_group(
     args: &[BatchToken],
     line_num: usize,
     cwd: Option<&Path>,
+    global: Option<&GlobalFlags>,
 ) -> anyhow::Result<Operation> {
     let flags = peel_cli_flags(
         args,
@@ -1043,7 +1058,7 @@ fn parse_ast_group(
         .map(|t| peel_owned(t, &["symbol", "symbols"]))
         .collect::<Vec<_>>();
     let preamble = match first_flag(&flags, "preamble") {
-        Some(p) => Some(resolve_at_payload(p, cwd, line_num, "preamble")?),
+        Some(p) => Some(resolve_at_payload(p, cwd, global, line_num, "preamble")?),
         None => None,
     };
     op!(AstGroup {
@@ -1242,6 +1257,7 @@ fn parse_replace_line(
     args: &[BatchToken],
     line_num: usize,
     cwd: Option<&Path>,
+    _global: Option<&GlobalFlags>,
 ) -> anyhow::Result<Operation> {
     if args.len() < 3 {
         return Err(anyhow::Error::new(crate::exit::ParseErrorError {
@@ -1784,7 +1800,7 @@ pub fn run(args: BatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;
         }
-        match parse_line_at(trimmed, i + 1, Some(&cwd)) {
+        match parse_line_at(trimmed, i + 1, Some(&cwd), Some(global)) {
             Ok(op) => operations.push(op),
             Err(e) => {
                 if crate::exit::is_io_not_found(&e) {

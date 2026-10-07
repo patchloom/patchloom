@@ -1469,7 +1469,7 @@ fn atomic_write_preserves_hardlink_sibling_content() {
 #[cfg(unix)]
 mod hardlink_handling {
     use super::*;
-    use std::os::unix::fs::MetadataExt;
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
     #[test]
     fn atomic_write_preserves_hardlinks() {
@@ -1505,6 +1505,32 @@ mod hardlink_handling {
             "nlink must stay > 1 after write, got {}",
             after_a.nlink()
         );
+    }
+
+    #[test]
+    fn restore_shared_inode_does_not_truncate_a_readonly_dest() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("dest.txt");
+        let staged = dir.path().join("staged.txt");
+        fs::write(&dest, "OLD-BYTES").unwrap();
+        fs::write(&staged, "NEW-BYTES-THAT-ARE-LONGER").unwrap();
+        let mut perms = fs::metadata(&dest).unwrap().permissions();
+        perms.set_mode(0o444);
+        fs::set_permissions(&dest, perms).unwrap();
+        // Root can still open a mode-0444 file for write.
+        if std::fs::OpenOptions::new().write(true).open(&dest).is_ok() {
+            let mut perms = fs::metadata(&dest).unwrap().permissions();
+            perms.set_mode(0o644);
+            fs::set_permissions(&dest, perms).unwrap();
+            return;
+        }
+
+        let err = super::super::restore_shared_inode(&dest, &staged);
+        assert!(err.is_err(), "readonly dest must fail the restore");
+        let mut perms = fs::metadata(&dest).unwrap().permissions();
+        perms.set_mode(0o644);
+        fs::set_permissions(&dest, perms).unwrap();
+        assert_eq!(fs::read_to_string(&dest).unwrap(), "OLD-BYTES");
     }
 
     #[test]

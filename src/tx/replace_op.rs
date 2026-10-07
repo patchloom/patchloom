@@ -319,8 +319,6 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
             // (do not fall through to replace-all; fixrealloop 2026-07-15).
             if match_count > 1
                 && nth.is_none()
-                && !*whole_line
-                && !regex_mode
                 && (before_context.is_some() || after_context.is_some())
             {
                 if let Some((target_offset, match_end)) = context_filtered_span_with_re(
@@ -331,7 +329,14 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                     after_context.as_deref(),
                 ) {
                     let matched = &content[target_offset..match_end];
-                    let piece = expand_match_anchor_template(&replacement, matched);
+                    // Literal replacements keep `$` as text. Regex mode
+                    // still expands `$1` / `${0}` against this one match.
+                    let piece = if regex_mode {
+                        expand_match_anchor_template(&replacement, matched)
+                    } else {
+                        let escaped = replacement.replace('$', "$$");
+                        expand_match_anchor_template(&escaped, matched)
+                    };
                     let new_content = format!(
                         "{}{}{}",
                         &content[..target_offset],
@@ -1523,6 +1528,92 @@ mod tests {
             result.contains("[cache]\nhost = localhost"),
             "cache section should be unchanged: {result}"
         );
+    }
+
+    #[test]
+    fn literal_before_context_keeps_dollar_text() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("config.ini");
+        std::fs::write(
+            &file,
+            "[database]\nhost = localhost\n\n[cache]\nhost = localhost\n",
+        )
+        .unwrap();
+        let op = Operation::Replace {
+            path: Some("config.ini".into()),
+            glob: None,
+            regex: false,
+            old: "host = localhost".into(),
+            new_text: Some("host = $100".into()),
+            nth: None,
+            insert_before: None,
+            insert_after: None,
+            case_insensitive: false,
+            multiline: false,
+            whole_line: false,
+            word_boundary: false,
+            range: None,
+            before_context: Some("[database]".into()),
+            after_context: None,
+            if_exists: false,
+            unique: false,
+            require_change: false,
+            command_position: false,
+            fuzzy: false,
+            min_fuzzy_score: None,
+            allow_absent_old: false,
+        };
+        let mut f = TxStateFixture::new();
+        let mut tx = f.state(dir.path());
+        let count = execute_replace_op(&op, &mut tx).unwrap();
+        drop(tx);
+        assert_eq!(count, 1);
+        let result = &f.pending[&file].1;
+        assert!(
+            result.contains("[database]\nhost = $100"),
+            "literal dollars must stay text: {result}"
+        );
+        assert!(
+            result.contains("[cache]\nhost = localhost"),
+            "unanchored match must stay: {result}"
+        );
+    }
+
+    #[test]
+    fn regex_before_context_replaces_only_the_anchored_match() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("notes.txt");
+        std::fs::write(&file, "alpha foo\nbeta foo\n").unwrap();
+        let op = Operation::Replace {
+            path: Some("notes.txt".into()),
+            glob: None,
+            regex: true,
+            old: "foo".into(),
+            new_text: Some("bar".into()),
+            nth: None,
+            insert_before: None,
+            insert_after: None,
+            case_insensitive: false,
+            multiline: false,
+            whole_line: false,
+            word_boundary: false,
+            range: None,
+            before_context: Some("alpha".into()),
+            after_context: None,
+            if_exists: false,
+            unique: false,
+            require_change: false,
+            command_position: false,
+            fuzzy: false,
+            min_fuzzy_score: None,
+            allow_absent_old: false,
+        };
+        let mut f = TxStateFixture::new();
+        let mut tx = f.state(dir.path());
+        let count = execute_replace_op(&op, &mut tx).unwrap();
+        drop(tx);
+        assert_eq!(count, 1);
+        assert_eq!(f.pending[&file].1, "alpha bar\nbeta foo\n");
     }
 
     #[test]

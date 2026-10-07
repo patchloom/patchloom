@@ -594,7 +594,14 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     // JSON matches MCP search_files: ok == matched; mismatch sets
     // error_kind: changes_detected (agent-rules / tx parity, exit 2).
     if let Some(expected) = args.assert_count {
-        let actual: usize = results.file_match_counts.values().sum();
+        // files-without-match stores a 0 count per listed file (no hits).
+        // Summing those zeros makes every --assert-count except a masked
+        // scan tautological. Count the listed files instead.
+        let actual: usize = if args.files_without_match {
+            results.file_match_counts.len()
+        } else {
+            results.file_match_counts.values().sum()
+        };
         // actual==0 with unreadable paths must not count as a clean match
         // (assert-count 0 would otherwise pass while the scan was masked).
         if actual == 0 {
@@ -1068,6 +1075,26 @@ mod tests {
             lines[0]
         );
         assert!(!output.contains("hit.txt"));
+    }
+
+    #[test]
+    fn files_without_match_assert_count_counts_listed_files() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("hit.txt"), "needle\n").unwrap();
+        fs::write(dir.path().join("miss.txt"), "nothing here\n").unwrap();
+        let root = dir.path().to_string_lossy().into_owned();
+
+        let mut args = make_args("needle", vec![root.clone()]);
+        args.files_without_match = true;
+        args.assert_count = Some(1);
+        let code = run(args, &GlobalFlags::test_default()).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+
+        let mut args = make_args("needle", vec![root]);
+        args.files_without_match = true;
+        args.assert_count = Some(0);
+        let code = run(args, &GlobalFlags::test_default()).unwrap();
+        assert_eq!(code, exit::CHANGES_DETECTED);
     }
 
     #[test]

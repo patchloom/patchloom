@@ -34,9 +34,7 @@ const PLAN_KNOWN_KEYS: &[&str] = &[
     "expected_sha256",
 ];
 
-const OP_KEY_ALIASES: &[&str] = &[
-    "op", "file", "from", "to", "key", "content", "new", "name", "command",
-];
+const OP_KEY_ALIASES: &[&str] = &["op", "file", "from", "to", "key", "content", "new", "name"];
 
 fn collect_unknown_plan_keys(value: &serde_json::Value) -> Vec<String> {
     let Some(obj) = value.as_object() else {

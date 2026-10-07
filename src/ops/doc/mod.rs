@@ -360,7 +360,8 @@ pub fn serialize_value_preserving(
                 })
             })?;
             apply_value_diff(doc.as_item_mut(), old_value, new_value);
-            Ok(restore_toml_file_eol(original_content, doc.to_string()))
+            let rendered = toml_preserve::restore_oversize_toml_integers(&doc.to_string());
+            Ok(restore_toml_file_eol(original_content, rendered))
         }
         FileFormat::Yaml => {
             // Multi-document streams must stay multi-document on write. Falling

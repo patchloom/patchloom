@@ -51,6 +51,9 @@ fn strip_json_comments(src: &str) -> String {
                         }
                         prev = ch;
                     }
+                    // A comment is whitespace. Dropping it with no
+                    // separator turns `1/*c*/2` into `12`.
+                    out.push(' ');
                 }
                 _ => out.push(c),
             },
@@ -221,6 +224,15 @@ mod tests {
         let src = "{\"a\": /* x */ 1}";
         let val: serde_json::Value = serde_json::from_str(&strip_jsonc(src)).unwrap();
         assert_eq!(val["a"], json!(1));
+    }
+
+    #[test]
+    fn block_comment_does_not_glue_adjacent_numbers() {
+        let stripped = strip_jsonc("{\"n\":1/*c*/2}");
+        assert!(
+            serde_json::from_str::<serde_json::Value>(&stripped).is_err(),
+            "glued number parsed: {stripped}"
+        );
     }
 
     #[test]

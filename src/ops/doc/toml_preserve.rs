@@ -73,6 +73,11 @@ pub(crate) fn apply_value_diff(
                         *v = json_to_toml_value(n);
                     }
                 }
+            } else if item.as_array_of_tables().is_some() && new_arr.iter().any(|n| !n.is_object())
+            {
+                // An element that is no longer a table cannot stay in an
+                // array-of-tables. Replace the whole value.
+                *item = json_to_toml_item(new);
             } else if let Some(aot) = item.as_array_of_tables_mut() {
                 for (i, (o, n)) in old_arr.iter().zip(new_arr.iter()).enumerate() {
                     if o != n
@@ -98,6 +103,45 @@ pub(crate) fn apply_value_diff(
     }
 }
 
+/// Marker wrapped around a JSON integer that does not fit in TOML's i64.
+/// `toml_edit` rejects that integer and would otherwise store an f64.
+/// [`restore_oversize_toml_integers`] writes the digits back as a bare integer.
+const OVERSIZE_INT_MARK: &str = "__patchloom_oversize_int:";
+
+fn json_number_to_toml(n: &serde_json::Number) -> toml_edit::Value {
+    if let Some(i) = n.as_i64() {
+        return toml_edit::Value::from(i);
+    }
+    if n.as_u64().is_some() {
+        return toml_edit::Value::from(format!("{OVERSIZE_INT_MARK}{n}"));
+    }
+    toml_edit::Value::from(n.as_f64().unwrap_or(0.0))
+}
+
+pub(super) fn restore_oversize_toml_integers(text: &str) -> String {
+    let needle = format!("\"{OVERSIZE_INT_MARK}");
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = rest.find(&needle) {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + needle.len()..];
+        let Some(end) = after.find('"') else {
+            out.push_str(&rest[start..]);
+            return out;
+        };
+        let digits = &after[..end];
+        if !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()) {
+            out.push_str(digits);
+            rest = &after[end + 1..];
+        } else {
+            out.push_str(&needle);
+            rest = after;
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
 /// Convert a `serde_json::Value` to a `toml_edit::Value` (scalar/array/inline-table).
 fn json_to_toml_value(val: &serde_json::Value) -> toml_edit::Value {
     match val {
@@ -109,14 +153,7 @@ fn json_to_toml_value(val: &serde_json::Value) -> toml_edit::Value {
             }
         }
         serde_json::Value::Bool(b) => toml_edit::Value::from(*b),
-        serde_json::Value::Number(n) => {
-            if let Some(i) = n.as_i64() {
-                toml_edit::Value::from(i)
-            } else {
-                // Covers u64 > i64::MAX and float values.
-                toml_edit::Value::from(n.as_f64().unwrap_or(0.0))
-            }
-        }
+        serde_json::Value::Number(n) => json_number_to_toml(n),
         serde_json::Value::Array(arr) => {
             let mut a = toml_edit::Array::new();
             for v in arr {
@@ -228,6 +265,43 @@ mod tests {
         let val = json(r#"{"key": "same"}"#);
         apply_value_diff(doc.as_item_mut(), &val, &val);
         assert_eq!(doc.to_string(), original);
+    }
+
+    #[test]
+    fn json_integer_above_i64_max_stays_a_toml_integer() {
+        let old = json(r#"{"n": 1}"#);
+        let new = json(r#"{"n": 9223372036854775809}"#);
+        let result = crate::ops::doc::serialize_value_preserving(
+            "n = 1\n",
+            &old,
+            &new,
+            &crate::ops::doc::FileFormat::Toml,
+        )
+        .unwrap();
+        assert!(
+            result.contains("9223372036854775809"),
+            "decimal text must survive: {result}"
+        );
+        assert!(
+            !result.contains("9223372036854775808")
+                && !result.contains('.')
+                && !result.contains(OVERSIZE_INT_MARK),
+            "must not round to f64: {result}"
+        );
+    }
+
+    #[test]
+    fn array_of_tables_element_replaced_when_it_stops_being_a_table() {
+        let mut doc = parse_toml("[[item]]\nname = \"a\"\n[[item]]\nname = \"b\"\n");
+        let old = json(r#"{"item":[{"name":"a"},{"name":"b"}]}"#);
+        let new = json(r#"{"item":["gone",{"name":"b"}]}"#);
+        apply_value_diff(doc.as_item_mut(), &old, &new);
+        let result = doc.to_string();
+        assert!(result.contains("gone"), "{result}");
+        assert!(
+            !result.contains("name = \"a\""),
+            "old table must not stay: {result}"
+        );
     }
 
     #[test]

@@ -1808,3 +1808,42 @@ fn notebook_edit_missing_cell_is_no_matches() {
         NOTEBOOK
     );
 }
+
+fn copy_diff(from: &str, to: &str) -> crate::plan::Operation {
+    crate::plan::Operation::PatchApply {
+        diff: format!(
+            "diff --git a/{from} b/{to}\nsimilarity index 100%\ncopy from {from}\ncopy to {to}\n"
+        ),
+        on_stale: Default::default(),
+        allow_conflicts: false,
+        replace_all: false,
+    }
+}
+
+#[test]
+fn patch_apply_guard_rejects_copy_from_outside_the_workspace() {
+    let dir = TempDir::new().unwrap();
+    std::fs::write(dir.path().join("inside.txt"), "kept\n").unwrap();
+    let guard = crate::containment::PathGuard::builder(dir.path().to_path_buf())
+        .build()
+        .unwrap();
+    let err = enforce_guard_for_op(&guard, &copy_diff("../secret.txt", "inside.txt"))
+        .expect_err("copy source outside the workspace");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("secret.txt"),
+        "guard must name the copy source, got {msg}"
+    );
+}
+
+#[test]
+fn patch_apply_guard_allows_copy_from_inside_the_workspace() {
+    let dir = TempDir::new().unwrap();
+    std::fs::write(dir.path().join("src.rs"), "fn a() {}\n").unwrap();
+    std::fs::write(dir.path().join("dst.rs"), "fn a() {}\n").unwrap();
+    let guard = crate::containment::PathGuard::builder(dir.path().to_path_buf())
+        .build()
+        .unwrap();
+    enforce_guard_for_op(&guard, &copy_diff("src.rs", "dst.rs"))
+        .expect("in-workspace copy source stays allowed");
+}

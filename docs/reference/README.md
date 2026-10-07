@@ -99,7 +99,8 @@ These flags shape how written content is normalized before it reaches disk.
 - **What it does:** Sets the maximum time in seconds the `--format` command is allowed to run before being killed. Defaults to 30 seconds.
 - **Use when:** The formatter is slow (e.g. large monorepo) and the default 30 second timeout is insufficient.
 - **Prefer instead:** Keep the default unless the formatter demonstrably needs more time.
-- **Failure behavior:** Exceeding the timeout kills the formatter process tree and exits **1** with `error_kind: "format_failed"` (same envelope as a failing `--format` command).
+- **Failure behavior:** Exceeding the timeout kills the formatter process tree and exits **1** with `error_kind: "format_failed"` (same envelope as a failing `--format` command). A background process that keeps the command's stderr open after the shell exits is covered by the same deadline. Patchloom kills that process tree and returns. It does not wait on the pipe.
+- **Where the command comes from:** A `.patchloom.toml` in the working directory, or in a parent inside the same git repository, can set `[defaults] format` and `[format]`. Outside a git repository, a parent config still applies write policy, but those format commands (including `auto` and `by_extension`) are dropped. A symlink `.patchloom.toml` is refused and its target is not read. A parse error names the config path and the first error line only.
 
 <!-- ref:write-flag:no-format -->
 ### `--no-format`
@@ -149,6 +150,7 @@ These flags affect how Patchloom reports results or chooses which files to touch
 - **Default:** Off. CLI remains unrestricted for human scripts (same trust model as `make` / `sh`).
 - **Prefer instead:** Use the MCP server when the agent already has MCP tools; containment is always on there (in-workspace absolute paths allowed; outside-workspace and `../` rejected).
 - **Format hooks:** Config and `--format` shell commands are run through the same metacharacter refuse as plan `format`/`validate` (`refuse_lifecycle_shell_metas`). `curl|sh` and `;` are not executed.
+- **Guarded reads:** With `--contain`, these reads are checked before the bytes are loaded: git `copy from` (apply, MCP `apply_patch`, and `patch check`), Begin Patch `check`, `patch merge --check`, `md lint-agents`, `md dedupe-headings`, and batch `@path` file payloads. A workspace symlink that points outside the tree is rejected.
 
 <!-- ref:global-flag:glob -->
 ### `--glob`
@@ -170,6 +172,7 @@ These flags affect how Patchloom reports results or chooses which files to touch
 - **What it does:** Excludes paths matching the given glob patterns (applied after .gitignore and any custom ignore files). May be repeated. Complements `--glob`.
 - **Use when:** You want to layer additional excludes (e.g. `target/**` or build artifacts) on top of custom ignore files / `.gitignore` for search, replace, or tidy.
 - **Parity:** Matches `SearchOptions.exclude_patterns` and the library `collect_file_paths_with_ignores` precedence.
+- **Directory prune:** A directory is skipped only when every descendant would match. A basename glob such as `_*` still walks a directory that contains a file the glob does not match.
 
 <!-- ref:global-flag:ignore-file -->
 ### `--ignore-file`
@@ -356,7 +359,7 @@ These are the main entry points. If you are deciding between commands, start her
 - **Replace order:** Batch `replace` is `replace PATH OLD NEW` (not CLI `replace OLD --new NEW path`). CLI flag `--new` (and plan-shaped `--from`/`--to`) is rejected with a PATH OLD NEW hint; path-last positionals also fail with a parse hint when the third token is an existing file. Bare `old=`/`new=` (and `from=`/`to=`) prefixes on those tokens are peeled.
 - **`--if-exists`:** Optional on `replace`, `doc.set`, and `file.delete`. Soft-skips a missing file (and, for `doc.set`, a missing selector) so sibling lines still apply.
 - **Plan-shaped keys:** Optional `key=value` prefixes on positionals are peeled so pasted plan/MCP keys do not become file bytes: file `content=`/`body=`/`path=`, md `heading=`/`content=`/`bullet=`/`row=` plus `md.move_section`/`md.dedupe_headings`/`md.lint_agents` `path=`/`before=`/`after=`, `file.rename` `from=`/`to=`, `ast.rename`/`ast.replace`/`ast.replace_symbol`/`ast.delete_symbol`/`ast.rewrite_signature` `old=`/`new=`/`symbol=`/`content=`/`parameters=`/`return_type=`, `ast.insert`/`ast.wrap`/`ast.group`/`ast.move`/`ast.extract_to_file`/`ast.split` `inside=`/`after=`/`before=`/`position=`/`wrapper=`/`preamble=`/`module=`/`target=`/`source=`/`order=`, doc `selector=`/`key=`/`value=`/`predicate=`, and `tidy.fix` `path=`.
-- **`@path` payloads:** On `ast.insert` content, `ast.wrap` wrapper/preamble, and `ast.group` preamble, a token that is exactly `@path` is read from that file. Missing files fail closed (`not_found`). `@` inside other quoted source is not treated as a file.
+- **`@path` payloads:** On `ast.insert` content, `ast.wrap` wrapper/preamble, and `ast.group` preamble, a token that is exactly `@path` is read from that file. Missing files fail closed (`not_found`). `@` inside other quoted source is not treated as a file. Under `--contain`, that path is checked before the file is opened.
 - **Quoting:** Double-quoted tokens allow only `\"` and `\\`. Sequences like `\n` are **literal** (not newlines). Prefer `tx` / MCP JSON for multi-line content, or put real newlines outside one-line quoted strings.
 - **Values (doc.set and friends):** After quote removal, each value token is parsed as JSON. Batch `doc.set f.json v "2.0"` still stores a **number** because the token text is `2.0`. Force a string with nested JSON quotes: `doc.set f.json v "\"2.0\""`, or use `tx` / MCP with `"value": "2.0"`. Same rule as CLI `doc set` (see agent-rules note).
 - **Failure behavior:** Line parse failures (unknown op, bad arity, bad quotes, CLI-order replace) exit `4` (`PARSE_ERROR`) with `error_kind: "parse_error"` and `applied: false` under `--json`/`--jsonl`. Too many operations (over the hard cap) exits `1` with `invalid_input`. Runtime op failures use the shared tx exit codes. Preview with changes uses the same `status: "changes_detected"` / exit `2` contract as `tx`.
@@ -550,7 +553,7 @@ These are meaningful command-specific modes that change how a top-level command 
 <!-- ref:search-mode:assert-count -->
 ### `search --assert-count`
 
-- **What it does:** Succeeds (exit 0) only if the total match count equals the given number. Exits 2 otherwise. Under `--json`/`--jsonl`, mismatch sets `ok: false`, `status: "changes_detected"`, and `error_kind: "changes_detected"` (same kind as plan/tx `search` assert_count and MCP `search_files`).
+- **What it does:** Succeeds (exit 0) only if the total match count equals the given number. Exits 2 otherwise. Under `--json`/`--jsonl`, mismatch sets `ok: false`, `status: "changes_detected"`, and `error_kind: "changes_detected"` (same kind as plan/tx `search` assert_count and MCP `search_files`). With `--files-without-match`, the total is the number of listed files (each listed file has zero matches). It is not a sum of those per-file counts.
 - **Use when:** An agent or CI pipeline needs to verify an invariant (e.g. "exactly 18 markers exist") in one call instead of searching and then comparing the count manually.
 - **Prefer instead:** Use plain `search --count` when you want to see counts without a pass/fail assertion.
 
@@ -643,7 +646,7 @@ These are meaningful command-specific modes that change how a top-level command 
 <!-- ref:replace-mode:before-context -->
 ### `replace --before-context`
 
-- **What it does:** Provides context line(s) that must appear before the target for anchor-based disambiguation. When the pattern matches multiple times, the match nearest to this context is selected. Routes through the tx engine fallback chain, which supports fuzzy anchor matching when the exact text is not found.
+- **What it does:** Provides context line(s) that must appear before the target for anchor-based disambiguation. When the pattern matches multiple times, the match nearest to this context is selected. The same selection applies to literal, regex, and `--whole-line` replaces. A literal replacement keeps `$` as text. Regex mode still expands `$1` and other captures. Routes through the tx engine fallback chain, which supports fuzzy anchor matching when the exact text is not found.
 - **Use when:** The pattern matches multiple times in a file and you need to target one specific occurrence by its surrounding code. Requires explicit file paths (not directory scan).
 - **Prefer instead:** Use `--nth` when you know the ordinal position. Use `--unique` when you want to enforce single-match without specifying context.
 
@@ -675,7 +678,7 @@ These are meaningful command-specific modes that change how a top-level command 
 
 - **What it does:** When the exact pattern has zero matches, try similarity/anchor fallback (same chain as before/after context). Plan ops and MCP `replace_text` accept `fuzzy: true`. Pure fuzzy (no context) works on disk library, single-path tx, **glob** plan ops, and CLI (including directory roots expanded like ordinary replace).
 - **Use when:** Agent edits may have whitespace or small typos but should still land with honest `match_mode` / `match_score` / `matched_text` in library results and CLI/MCP JSON (#1669, #1736). Multi-file CLI replace, plan/tx, and content_edits all roll up worst-case confidence (`fuzzy` > `anchored` > `exact`) so mixed batches never under-report fuzzy. Aggregate `match_score` is the **minimum** fuzzy score across paths/ops (lowest confidence), not the first fuzzy hit. Aggregate `matched_text` is the **widest** span by Unicode char count (not first-non-null; #2007). Per-path spans stay on `changes[]`.
-- **Default safety (#1758):** When exact `old` is **absent**, Similarity/fuzzy **refuses to write** by default (even above `min_fuzzy_score`) and reports the best candidate. Set `--allow-absent-old` / `allow_absent_old` only for deliberate approximate recovery. Anchored matches (explicit context) still apply.
+- **Default safety (#1758):** When exact `old` is **absent**, Similarity/fuzzy **refuses to write** by default (even above `min_fuzzy_score`) and reports the best candidate. Set `--allow-absent-old` / `allow_absent_old` only for deliberate approximate recovery. Anchored matches (explicit context) still apply. Similarity candidates that fail the same length check as suggestion ranking are skipped, so a short token such as `confg` is not applied to a much longer identifier such as `configuration`.
 - **Over-wide fuzzy refuse (#1981 / #2005 / #2008 / #2064):** `ReplaceOptions::for_agent()` sets `refuse_suspicious_fuzzy=true` so `replace_in_content` auto-refuses over-wide fuzzy as `EditErrorKind::FuzzySpanSuspicious` (`is_fuzzy_span_suspicious`). Custom options: call `api::fuzzy_span_suspicious(old, matched_text, match_score)` (or `FuzzySpanPolicy`) before trust. Default policy: refuse when matched is wider than `max(4 * old_chars, old_chars + 40)`, or score is in `[0.90, 0.95)` and ratio `> 2`. Buffer multi-op after `apply_content_edits`: `refuse_batch_if_suspicious_fuzzy(&batch, &FuzzySpanPolicy::default())` (#2064). File multi-op with a final gate: `apply_content_edits_to_file_with_span_policy(..., Some(&FuzzySpanPolicy::default()))` refuses before write/backup (#2008).
 - **Prefer instead:** Exact replace when the target string is known; `ast rename` for code identifiers.
 
@@ -853,6 +856,10 @@ Predicates can be chained: `data[type=server][port>8000]`.
 - **Failure behavior:** Predicate or wildcard selectors fail closed (exit 1) with `error_kind: "invalid_input"` and machine-stable `suggested_op: "doc.update"` under `--json` / plan / MCP (#2133). The same mapping applies when the predicate is an **intermediate** parent segment (e.g. `items[id=a].val`), not only a leaf (#2138).
 - **Leading slash:** A single leading `/` is stripped (JSON Pointer habit). `/feature_flag` sets key `feature_flag`, not a key named `/feature_flag` (#1794). Prefer bare keys in agent prompts.
 - **Root selector:** `.` (also empty or `/`) is the document root. `doc keys FILE .` lists top-level keys. `doc set FILE . VALUE` replaces the whole document.
+- **JSONC:** A block comment is replaced with a space before parse, so `1/*c*/2` is not the number `12`.
+- **TOML integers:** A JSON integer that does not fit in `i64` is written as a TOML integer, not a float.
+- **TOML array of tables:** A same-length update replaces an element that is no longer a table. The old table is not left in place.
+- **YAML lists:** A comment between entries stays with the list. A comment after the last entry and before the next key stays outside the splice.
 
 <!-- ref:doc-action:delete -->
 ### `doc delete`
@@ -943,7 +950,7 @@ Use these when markdown structure matters more than raw text matching.
 <!-- ref:md-action:replace-section -->
 ### `md replace-section`
 
-- **What it does:** Replaces the body of a heading section. The section runs from after the matched heading until the next heading of the **same or higher** level (CommonMark hierarchy). Nested lower-level headings (for example `## API` under `# Intro`) are part of that section and are replaced too.
+- **What it does:** Replaces the body of a heading section. The section runs from after the matched heading until the next heading of the **same or higher** level (CommonMark hierarchy). Nested lower-level headings (for example `## API` under `# Intro`) are part of that section and are replaced too. The heading query drops CommonMark closing hashes, so `## API ##` matches a heading stored as `API`. A body that is only the blank line before the next heading stays a blank line after the replace. Two setext underline lines in a row are not an inverted body range.
 - **Use when:** A section should be treated as authoritative content that can be rewritten in one step. Prefer peer-level headings (all `##`) when you must keep sibling sections.
 - **Prefer instead:** Use `md insert-after-heading` when existing section content should stay and you only need to add more text. Target a `##` heading when you only want that subsection, not a parent `#` that owns nested `##` children.
 
@@ -964,7 +971,7 @@ Use these when markdown structure matters more than raw text matching.
 <!-- ref:md-action:insert-before-heading -->
 ### `md insert-before-heading`
 
-- **What it does:** Inserts content immediately before a heading line.
+- **What it does:** Inserts content immediately before a heading line. A leading UTF-8 BOM stays at the start of the file. The insert goes after it.
 - **Use when:** You want to add a preface or a new section boundary before an existing heading.
 - **Prefer instead:** Use `md insert-after-section` when the addition belongs after the previous section's body.
 
@@ -982,6 +989,8 @@ Use these when markdown structure matters more than raw text matching.
 - **Use when:** Generated markdown or hand edited docs have accumulated repeated sections that should collapse to one, and keeping only the first section body is correct.
 - **Prefer instead:** Use `md lint-agents` when the goal is diagnosis rather than mutation. Do not use dedupe if later duplicate-titled sections hold unique content you need to keep or merge.
 - **JSON:** Object with `ok`, `path`, `removed` (heading strings), `applied` (false for preview/check), and `backup_session` after a real apply. JSONL still emits one JSON string per removed heading.
+- **Preview text:** Default mode prints `md: would remove duplicate:` and does not write the file (exit 2). `--apply` is what removes the later section.
+- **Containment:** Under `--contain`, each path is checked before the file is read. Same check for `md lint-agents`.
 
 <!-- ref:md-action:lint-agents -->
 ### `md lint-agents`
@@ -1012,7 +1021,7 @@ Use these when the change already exists as a unified diff.
 <!-- ref:patch-action:check -->
 ### `patch check`
 
-- **What it does:** Dry-run a unified diff without writing. Per-file status is `would_change` (exit 2) when the patch applies and content would change (including pure git renames, 100% copies, and empty creates where content is identical but the dest is new), `unchanged` when the result equals the current file, or fail-closed statuses for problems (`missing` → `not_found`, rename/copy/empty-create dest exists → `already_exists`, unsupported git-meta → `invalid_input`, `stale` → `ambiguous` / exit 5).
+- **What it does:** Dry-run a unified diff without writing. Per-file status is `would_change` (exit 2) when the patch applies and content would change (including pure git renames, 100% copies, and empty creates where content is identical but the dest is new), `unchanged` when the result equals the current file, or fail-closed statuses for problems (`missing` → `not_found`, rename/copy/empty-create dest exists → `already_exists`, unsupported git-meta → `invalid_input`, `stale` → `ambiguous` / exit 5). With `--contain`, Begin Patch `check`, content loads, and `merge --check` use the same path guard as apply. A workspace symlink that points outside the tree is rejected before the target is read.
 - **Use when:** CI or agents need the same “would change” signal as `patch apply` preview before committing to `--apply`.
 - **Prefer instead:** Use `patch apply` when the patch should be written, or `replace` and `doc` when you do not actually need to carry a diff file.
 - **JSON:** Includes `applied: false`. Do not treat historical status `clean` as “nothing to do”; that name meant “applies without fuzz” and confused agents.
@@ -1020,7 +1029,7 @@ Use these when the change already exists as a unified diff.
 <!-- ref:patch-action:apply -->
 ### `patch apply`
 
-- **What it does:** Applies a unified diff, including git renames with hunks, pure renames (`similarity index 100%` with `rename from` / `rename to`), and 100% git copies (`copy from` / `copy to`, dest created, source kept). Also detects Codex Begin Patch and Aider SEARCH/REPLACE / DiffFenced (`<<<<<<< SEARCH`). SEARCH/REPLACE is unique unless `--replace-all`. Optional C-quoted paths with spaces and octal escapes. Git-meta binary / mode-only dests are listed for preflight then apply refuses. Use `--on-stale merge` to retry with three-way merge when context is stale. Empty-hunk `+++ /dev/null` (git `deleted file mode`, no hunks) unlinks. A hunked delete applies the minus lines first; leftover bytes rewrite the file (preview `--diff` to see them). Path-only unlink is `file.delete`.
+- **What it does:** Applies a unified diff, including git renames with hunks, pure renames (`similarity index 100%` with `rename from` / `rename to`), and 100% git copies (`copy from` / `copy to`, dest created, source kept). A hunked git copy keeps that source and applies the hunks to the copy. A hunk whose body ends before the `@@` old and new counts are satisfied is a parse error, including when the diff ends there. Also detects Codex Begin Patch and Aider SEARCH/REPLACE / DiffFenced (`<<<<<<< SEARCH`). SEARCH/REPLACE is unique unless `--replace-all`. Optional C-quoted paths with spaces and octal escapes. Git-meta binary / mode-only dests are listed for preflight then apply refuses. Use `--on-stale merge` to retry with three-way merge when context is stale. Empty-hunk `+++ /dev/null` (git `deleted file mode`, no hunks) unlinks. A hunked delete applies the minus lines first; leftover bytes rewrite the file (preview `--diff` to see them). Path-only unlink is `file.delete`. With `--contain`, the `copy from` path is checked before it is read.
 - **Use when:** The desired change is already available as patch text, a Begin Patch envelope, or a SEARCH/REPLACE document and should be replayed directly.
 - **Failure behavior:** Missing rename/source target → `not_found`. Git rename or copy destination already present → `already_exists` (same policy as `rename` without `--force`; remove the dest or use `file.rename --force`). Unsupported git-meta (binary payload, mode-only) → `invalid_input` (dest still appears in `parse_unified_diff` / `patch_declared_paths`). Stale minus lines on a hunked delete are `ambiguous` (exit 5) and the file is not removed; regenerate minus lines from the current file, or use `file.delete` for path-only unlink.
 - **Prefer instead:** Use `replace`, `md`, or `doc` when you would rather describe the desired mutation at a higher level.
@@ -1095,11 +1104,12 @@ Use these when newline and whitespace correctness is the main concern.
 - **Alias:** `ops` is accepted on deserialize (common agent shorthand). Serialized plans still emit `operations`.
 - **Use when:** One logical change spans several steps or several mutation types.
 - **Prefer instead:** Use a standalone command when one direct operation is enough.
+- **Unknown keys:** Extra keys on an operation warn and are ignored. `command` is not an operation field. It is only the shell alias on `format` and `validate` steps. An operation that sets `command` warns and does not run that string.
 
 <!-- ref:tx-field:format -->
 ### `format`
 
-- **What it does:** Runs shell commands after writes are staged to disk but before validation.
+- **What it does:** Runs shell commands after writes are staged to disk but before validation. The steps still run when every file operation is already satisfied. A plan that only lists `format` or `validate` runs those commands.
 - **Use when:** Generated or edited files should be normalized by tools like `cargo fmt`, `prettier`, or `black` as part of the same workflow.
 - **Step fields:** Each entry accepts `cmd` (required shell command) and `timeout` (seconds, default `60`).
 - **Failure behavior:** Any non-zero exit or timeout fails the transaction. Error output reports the failing step number, exit status, the lifecycle working directory (`cwd`), and a truncated snippet of the command's stderr when available. With `strict: true`, Patchloom rolls back the staged writes.
@@ -1416,6 +1426,8 @@ The operations below are the building blocks inside `operations`.
 - **Body gap:** High-level paths accept a logical `new_signature` without trailing whitespace and preserve the original gap before `{` (or insert a conventional space if the original was already glued). Trait/extern forms ending in `;` do not get a spurious space. See #1503 / `splice_function_signature`.
 - **Use when:** Changing parameter lists, visibility, or return types without a brittle line scan (LLM agent hosts and embedders).
 - **Failure behavior:** Missing function name exits 3 (`no_matches`) with the function name in the error; JSON plans report `error_kind: "no_matches"`.
+- **Visibility:** On Java, `visibility` replaces only `public`, `protected`, or `private`. `static`, `final`, and annotations stay. When there is no access keyword, the new visibility is inserted at the start of the signature.
+- **Return type:** On C and C++, the span includes qualified names, `auto`, `decltype`, and a preceding type qualifier such as `const` when only whitespace separates it from the type.
 - **Related:** `ast.replace`, `ast.rename`
 
 <!-- ref:tx-op:ast.insert -->
@@ -1463,6 +1475,7 @@ The operations below are the building blocks inside `operations`.
 - **What it does:** Moves symbols from one file to another, removing them from the source and inserting at a specified position in the target. Supports creating the target file with an optional prepend. Preserves attached doc comments and attributes. Set `update_imports` (Rust only) with `old_module_path` and `new_module_path` to rewrite consumer `use` statements of the moved symbols (default off; missing module paths fail with `invalid_input`). CLI: `ast move PATH --target DEST --symbols a,b`.
 - **Use when:** You need to relocate functions, structs, or constants between files during a refactoring (e.g., moving helpers from `lib.rs` to `utils.rs`).
 - **Failure behavior:** Missing source or target anchor symbols exit **3** (`no_matches`) with `error_kind: "no_matches"`. `update_imports: true` without both module paths, or `update_imports: true` on a non-Rust file, exits **1** with `error_kind: "invalid_input"`.
+- **Insert at start:** A first line that starts with `#![` is a Rust inner attribute, not a shebang. `position: start` inserts after the whole attribute, including a multiline `#![cfg_attr(`.
 - **Related:** `ast.extract_to_file`, `ast.group`, `ast.imports`
 
 <!-- ref:tx-op:ast.extract_to_file -->

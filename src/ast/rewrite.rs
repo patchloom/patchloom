@@ -949,7 +949,7 @@ fn rewrite_sig_generic(
     // -- Return type --
     if let Some(new_ret) = &edit.return_type {
         let ret_empty = new_ret.trim().is_empty();
-        if let Some(range) = find_return_type_range(fn_node, lang, sig_end) {
+        if let Some(range) = find_return_type_range(fn_node, lang, sig_end, source) {
             if ret_empty {
                 // Remove return type and preceding whitespace
                 let trimmed_start = source[..range.start].trim_end().len();
@@ -1030,7 +1030,12 @@ fn find_modifier_node(
     lang: Language,
 ) -> Option<tree_sitter_lib::Node> {
     match lang {
-        Language::Java => find_first_child_of_kinds(fn_node, &["modifiers"]),
+        Language::Java => {
+            let mods = find_first_child_of_kinds(fn_node, &["modifiers"])?;
+            let mut cursor = mods.walk();
+            mods.children(&mut cursor)
+                .find(|c| matches!(c.kind(), "public" | "protected" | "private"))
+        }
         _ => find_first_child_of_kinds(fn_node, &["visibility_modifier", "visibility"]),
     }
 }
@@ -1041,6 +1046,7 @@ fn find_return_type_range(
     fn_node: tree_sitter_lib::Node,
     lang: Language,
     sig_end: usize,
+    source: &str,
 ) -> Option<std::ops::Range<usize>> {
     match lang {
         Language::Python => {
@@ -1113,11 +1119,44 @@ fn find_return_type_range(
                 "enum_specifier",
                 "union_specifier",
                 "template_type",
+                "qualified_identifier",
+                "placeholder_type_specifier",
+                "decltype",
             ];
             let mut cursor = fn_node.walk();
             for child in fn_node.children(&mut cursor) {
                 if child.start_byte() < decl_start && type_kinds.contains(&child.kind()) {
-                    return Some(child.start_byte()..child.end_byte());
+                    let mut start = child.start_byte();
+                    let mut end = child.end_byte();
+                    // Pull in every adjacent type_qualifier (`const volatile int`
+                    // and postfix `int const`). One pass only sees the nearest
+                    // qualifier, because the next one is separated by that text.
+                    loop {
+                        let mut moved = false;
+                        let mut qual = fn_node.walk();
+                        for sib in fn_node.children(&mut qual) {
+                            if sib.kind() != "type_qualifier" {
+                                continue;
+                            }
+                            if sib.end_byte() <= start {
+                                let between = &source[sib.end_byte()..start];
+                                if between.chars().all(|ch| ch.is_whitespace()) {
+                                    start = sib.start_byte();
+                                    moved = true;
+                                }
+                            } else if sib.start_byte() >= end {
+                                let between = &source[end..sib.start_byte()];
+                                if between.chars().all(|ch| ch.is_whitespace()) {
+                                    end = sib.end_byte();
+                                    moved = true;
+                                }
+                            }
+                        }
+                        if !moved {
+                            break;
+                        }
+                    }
+                    return Some(start..end);
                 }
             }
             None
@@ -1441,6 +1480,70 @@ mod tests {
         assert!(
             out.contains("protected void processEvent"),
             "should replace visibility: {out}"
+        );
+    }
+
+    #[test]
+    fn java_visibility_keeps_static_and_annotations() {
+        let src = "public class Foo {\n    @Override\n    public static void processEvent(Event e) {\n        // body\n    }\n}\n";
+        let edit = FunctionSigEdit {
+            visibility: Some("protected".to_string()),
+            ..Default::default()
+        };
+        let out = rewrite_function_signature(src, "processEvent", &edit, Language::Java).unwrap();
+        assert!(out.contains("@Override"), "annotation must stay: {out}");
+        assert!(out.contains("static"), "static must stay: {out}");
+        assert!(
+            out.contains("protected") && !out.contains("public static"),
+            "only the access keyword changes: {out}"
+        );
+    }
+
+    #[test]
+    fn cpp_return_type_includes_const_and_auto() {
+        let const_src = "const int process(int x) {\n    return 0;\n}\n";
+        let edit = FunctionSigEdit {
+            return_type: Some("void".to_string()),
+            ..Default::default()
+        };
+        let out = rewrite_function_signature(const_src, "process", &edit, Language::Cpp).unwrap();
+        assert!(out.contains("void process"), "{out}");
+        assert!(
+            !out.contains("const"),
+            "const must move with the type: {out}"
+        );
+
+        let auto_src = "auto process(int x) {\n    return 0;\n}\n";
+        let edit = FunctionSigEdit {
+            return_type: Some("int".to_string()),
+            ..Default::default()
+        };
+        let out = rewrite_function_signature(auto_src, "process", &edit, Language::Cpp).unwrap();
+        assert!(out.contains("int process"), "{out}");
+        assert!(!out.contains("auto"), "auto must be replaced: {out}");
+
+        let stacked = "const volatile int process(int x) {\n    return 0;\n}\n";
+        let edit = FunctionSigEdit {
+            return_type: Some("void".to_string()),
+            ..Default::default()
+        };
+        let out = rewrite_function_signature(stacked, "process", &edit, Language::Cpp).unwrap();
+        assert!(out.contains("void process"), "{out}");
+        assert!(
+            !out.contains("const") && !out.contains("volatile"),
+            "every adjacent qualifier must move with the type: {out}"
+        );
+
+        let postfix = "int const process(int x) {\n    return 0;\n}\n";
+        let edit = FunctionSigEdit {
+            return_type: Some("void".to_string()),
+            ..Default::default()
+        };
+        let out = rewrite_function_signature(postfix, "process", &edit, Language::Cpp).unwrap();
+        assert!(out.contains("void process"), "{out}");
+        assert!(
+            !out.contains("const"),
+            "postfix const must move with the type: {out}"
         );
     }
 

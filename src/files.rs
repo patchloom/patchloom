@@ -1284,9 +1284,10 @@ fn apply_exclude_globs(
 /// [`apply_exclude_globs`]; no extra exclude syntax.
 #[cfg(any(feature = "cli", feature = "files"))]
 fn should_prune_excluded_directory(dir: &Path, root: Option<&Path>, matcher: &GlobSet) -> bool {
-    const SENTINEL: &str = "__walk_prune__";
-    let child = dir.join(SENTINEL);
-    let nested = child.join(SENTINEL);
+    // Two different basenames. A shared name such as `__walk_prune__`
+    // matches `_*` on both levels and prunes every directory.
+    let child = dir.join("patchloomWalkPruneC");
+    let nested = child.join("patchloomWalkPruneG");
     exclude_path_matches(&child, root, matcher) && exclude_path_matches(&nested, root, matcher)
 }
 
@@ -3269,6 +3270,16 @@ mod walk_prune_tests {
             Some(root),
             &m
         ));
+    }
+
+    #[test]
+    fn do_not_prune_underscore_basename_glob() {
+        let m = matcher("_*");
+        let root = Path::new("/project");
+        assert!(
+            !should_prune_excluded_directory(&root.join("src"), Some(root), &m),
+            "a basename glob must not prune a directory that still has included files"
+        );
     }
 
     #[test]
