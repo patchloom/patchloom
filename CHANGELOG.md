@@ -11,6 +11,15 @@ present (applied to the GitHub Release body by the host job). Versioned
 sections below are managed by release-please.
 
 
+## [0.37.1](https://github.com/patchloom/patchloom/compare/patchloom-v0.37.0...patchloom-v0.37.1) (2026-10-08)
+
+
+### Bug Fixes
+
+* keep the format timeout after stderr closes ([#2650](https://github.com/patchloom/patchloom/issues/2650)) ([343e100](https://github.com/patchloom/patchloom/commit/343e100b7c5e0bf6aa9340cade366e0b5b003cd6))
+* report config format timeouts as format_failed ([#2648](https://github.com/patchloom/patchloom/issues/2648)) ([f73a4da](https://github.com/patchloom/patchloom/commit/f73a4daf1c8754eb3141cdebc1aa3b6342b65fd9))
+* stop format hangs, leaked reads, and silent edit bugs ([#2643](https://github.com/patchloom/patchloom/issues/2643)) ([248a7d8](https://github.com/patchloom/patchloom/commit/248a7d8460b2579cbec7714c67255481f5647b9f))
+
 ## [0.37.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.36.0...patchloom-v0.37.0) (2026-09-25)
 
 
