@@ -162,6 +162,33 @@ mod basic {
     }
 
     #[test]
+    fn dedupe_preview_says_would_remove() {
+        let line = super::super::dedupe_human_line("Section");
+        assert!(
+            line.contains("would remove duplicate"),
+            "preview must be future tense: {line}"
+        );
+        assert!(
+            !line.contains("removed duplicate"),
+            "preview must not say the file already changed: {line}"
+        );
+
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.md");
+        let original = "# Section\nfirst\n# Section\nsecond\n";
+        fs::write(&file, original).unwrap();
+        let args = MdArgs {
+            action: MdAction::DedupeHeadings {
+                files: vec![file.to_str().unwrap().to_string()],
+            },
+            write: Default::default(),
+        };
+        let code = run(args, &GlobalFlags::test_default()).unwrap();
+        assert_eq!(code, exit::CHANGES_DETECTED);
+        assert_eq!(fs::read_to_string(&file).unwrap(), original);
+    }
+
+    #[test]
     fn lint_agents_finds_missing_final_newline() {
         let dir = TempDir::new().unwrap();
         let file = dir.path().join("AGENTS.md");

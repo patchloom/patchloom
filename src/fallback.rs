@@ -1070,7 +1070,7 @@ fn best_token_similarity(content: &str, target: &str) -> Option<AnchorMatchResul
     let mut offset = 0usize;
     for line in content.lines() {
         for (ident, col) in extract_identifiers_with_offsets(line) {
-            if ident == target {
+            if ident == target || !similar_target_length_plausible(ident, target) {
                 continue;
             }
             let score = strsim::jaro_winkler(ident, target);
@@ -1203,6 +1203,15 @@ pub(crate) fn truncate_str(s: &str, max_len: usize) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn short_token_is_not_similar_to_a_much_longer_identifier() {
+        let hit = best_token_similarity("let configuration = 1;\n", "confg");
+        assert!(
+            hit.is_none(),
+            "confg must not rewrite configuration: {hit:?}"
+        );
+    }
 
     #[test]
     fn edit_error_display() {

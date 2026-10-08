@@ -117,37 +117,93 @@ pub struct Output {
     pub color: Option<String>,
 }
 
-/// Search for `.patchloom.toml` starting from `start` and walking up to the
-/// filesystem root. Returns the parsed config and its directory, or `None` if
-/// no config file is found.
+/// Search for `.patchloom.toml` from `start`, walking parents until a git
+/// root. Outside git, ancestor `[defaults] format` and `[format]` commands
+/// are dropped so a planted parent config cannot run a shell.
 pub fn find_and_load(start: &Path) -> Option<(ProjectConfig, PathBuf)> {
     find_and_load_opts(start, false)
 }
 
-/// Fail-closed load for CLI and tx. Missing file is `Ok(None)`; read or parse
-/// failure is `Err` (`parse_error`).
+/// Fail-closed load for CLI and tx. A missing file, or a probe whose parent
+/// path is a file (`NotADirectory` on Linux), is `Ok(None)`. A real read or
+/// parse failure is `Err` (`parse_error`).
 pub fn find_and_load_strict(start: &Path) -> anyhow::Result<Option<(ProjectConfig, PathBuf)>> {
+    let in_git = git_ceiling(start).is_some();
     let mut dir = start.to_path_buf();
     loop {
-        let candidate = dir.join(".patchloom.toml");
-        if candidate.is_file() {
-            let content =
-                std::fs::read_to_string(&candidate).map_err(|e| crate::exit::ParseErrorError {
-                    msg: format!("could not read {}: {e}", candidate.display()),
-                })?;
-            let config = toml_edit::de::from_str::<ProjectConfig>(&content).map_err(|e| {
-                crate::exit::ParseErrorError {
-                    msg: format!("malformed {}: {e}", candidate.display()),
-                }
-            })?;
-            return Ok(Some((config, dir)));
+        if let Some(mut loaded) = read_config_file(&dir.join(".patchloom.toml"))? {
+            // Outside git, an ancestor config must not become a shell
+            // command (`/tmp/.patchloom.toml` while working in `/tmp/work`).
+            // Write policy and other settings still apply.
+            if !in_git && dir != start {
+                loaded.defaults.format = None;
+                loaded.format = FormatConfig::default();
+            }
+            return Ok(Some((loaded, dir)));
         }
-        // Stop at repo root to avoid loading configs from parent directories.
         if dir.join(".git").exists() {
             return Ok(None);
         }
         if !dir.pop() {
             return Ok(None);
+        }
+    }
+}
+
+/// Nearest ancestor (including `start`) that contains `.git`, if any.
+fn git_ceiling(start: &Path) -> Option<PathBuf> {
+    let mut dir = start.to_path_buf();
+    loop {
+        if dir.join(".git").exists() {
+            return Some(dir);
+        }
+        if !dir.pop() {
+            return None;
+        }
+    }
+}
+
+/// A symlink is refused without opening the target, so a parse error cannot
+/// echo a line from outside the tree.
+fn read_config_file(candidate: &Path) -> anyhow::Result<Option<ProjectConfig>> {
+    let meta = match std::fs::symlink_metadata(candidate) {
+        Ok(meta) => meta,
+        Err(e)
+            if e.kind() == std::io::ErrorKind::NotFound
+                || e.kind() == std::io::ErrorKind::NotADirectory =>
+        {
+            return Ok(None);
+        }
+        Err(e) => {
+            return Err(crate::exit::ParseErrorError {
+                msg: format!("could not read {}: {e}", candidate.display()),
+            }
+            .into());
+        }
+    };
+    if meta.file_type().is_symlink() {
+        return Err(crate::exit::ParseErrorError {
+            msg: format!("refusing to load symlink config {}", candidate.display()),
+        }
+        .into());
+    }
+    if !meta.is_file() {
+        return Ok(None);
+    }
+    let content = std::fs::read_to_string(candidate).map_err(|e| crate::exit::ParseErrorError {
+        msg: format!("could not read {}: {e}", candidate.display()),
+    })?;
+    match toml_edit::de::from_str::<ProjectConfig>(&content) {
+        Ok(config) => Ok(Some(config)),
+        Err(e) => {
+            // First line only. toml_edit's Display also prints the source
+            // line, which would leak a secrets file.
+            let full = e.to_string();
+            let first = full.lines().next().unwrap_or("parse error");
+            Err(crate::exit::ParseErrorError {
+                msg: format!("malformed {}: {first}", candidate.display()),
+            }
+            .into())
         }
     }
 }
@@ -398,6 +454,15 @@ color = "always"
     }
 
     #[test]
+    fn find_and_load_strict_ignores_config_probe_through_a_file() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("not-a-dir");
+        std::fs::write(&file, "nope\n").unwrap();
+        let loaded = find_and_load_strict(&file).expect("a file path is not a config read error");
+        assert!(loaded.is_none());
+    }
+
+    #[test]
     fn find_and_load_stops_at_git_boundary() {
         let dir = TempDir::new().unwrap();
         // Place a config in the parent directory.
@@ -558,6 +623,49 @@ color = "always"
     fn find_and_load_strict_ok_when_missing() {
         let dir = TempDir::new().unwrap();
         assert!(find_and_load_strict(dir.path()).unwrap().is_none());
+    }
+
+    #[test]
+    fn non_git_ancestor_config_drops_format_commands() {
+        let root = TempDir::new().unwrap();
+        std::fs::write(
+            root.path().join(".patchloom.toml"),
+            "[defaults]\nformat = \"touch /tmp/pwned\"\n[write_policy]\nensure_final_newline = true\n[format]\nauto = true\ncommand = \"touch /tmp/pwned\"\n",
+        )
+        .unwrap();
+        let child = root.path().join("work");
+        std::fs::create_dir(&child).unwrap();
+        let (cfg, found) = find_and_load_strict(&child).unwrap().unwrap();
+        assert_eq!(found, root.path());
+        assert!(cfg.defaults.format.is_none());
+        assert!(cfg.format.command.is_none());
+        assert!(cfg.format.auto.is_none());
+        assert_eq!(cfg.write_policy.ensure_final_newline, Some(true));
+    }
+
+    #[test]
+    fn git_subdir_still_loads_repo_root_config() {
+        let root = TempDir::new().unwrap();
+        std::fs::create_dir(root.path().join(".git")).unwrap();
+        std::fs::write(root.path().join(".patchloom.toml"), "[tx]\nstrict = true\n").unwrap();
+        let child = root.path().join("src");
+        std::fs::create_dir(&child).unwrap();
+        let (cfg, dir) = find_and_load_strict(&child).unwrap().unwrap();
+        assert_eq!(dir, root.path());
+        assert_eq!(cfg.tx.strict, Some(true));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn symlink_config_is_refused_without_reading_the_target() {
+        let dir = TempDir::new().unwrap();
+        let secret = dir.path().join("secret");
+        std::fs::write(&secret, "aws_secret_access_key = AKIA_NOT_A_KEY\n").unwrap();
+        std::os::unix::fs::symlink(&secret, dir.path().join(".patchloom.toml")).unwrap();
+        let err = find_and_load_strict(dir.path()).expect_err("symlink config");
+        let msg = err.to_string();
+        assert!(msg.contains("symlink"), "{msg}");
+        assert!(!msg.contains("AKIA_NOT_A_KEY"), "{msg}");
     }
 
     #[test]

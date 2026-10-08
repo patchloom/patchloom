@@ -307,10 +307,9 @@ fn find_block_entries_end(lines: &[&str], first_entry: usize, entry_indent: &str
             continue;
         }
         if trimmed.starts_with('#') {
-            // Comment line: include regardless of indentation. YAML
-            // comments between entries often have reduced indent (e.g.
-            // a top-level comment between indented entries).
-            end = i + 1;
+            // Do not move `end` yet. A later entry pulls comments that
+            // sit between entries into the range. A comment after the
+            // last entry, above the next key, stays outside.
             continue;
         }
         if cur_indent > indent_len {
@@ -729,6 +728,13 @@ mod tests {
         let yaml = "items:\n  - one\n  # same indent comment\n  - two\nnext: val\n";
         let lines: Vec<&str> = yaml.lines().collect();
         assert_eq!(find_block_entries_end(&lines, 1, "  "), 4);
+    }
+
+    #[test]
+    fn comment_after_last_list_entry_stays_outside_the_splice() {
+        let yaml = "items:\n  - one\n  # trailing comment\nnext: val\n";
+        let lines: Vec<&str> = yaml.lines().collect();
+        assert_eq!(find_block_entries_end(&lines, 1, "  "), 2);
     }
 
     // -----------------------------------------------------------------------

@@ -862,6 +862,9 @@ impl PatchloomService {
                 } else {
                     svc.check_path(&pf.path)?;
                 }
+                if let Some(from) = &pf.copy_from {
+                    svc.check_path(from)?;
+                }
             }
 
             if p.replace_all {

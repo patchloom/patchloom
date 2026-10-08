@@ -10,6 +10,29 @@ mod basic {
     }
 
     #[test]
+    #[cfg(feature = "ast")]
+    fn contain_rejects_at_path_before_read() {
+        let ws = tempfile::TempDir::new().unwrap();
+        let outside = tempfile::TempDir::new().unwrap();
+        let secret = outside.path().join("secret.txt");
+        std::fs::write(&secret, "AKIA_NOT_A_KEY\n").unwrap();
+        let mut global = crate::cli::global::GlobalFlags::test_with_cwd(ws.path());
+        global.contain = true;
+        let line = format!("ast.insert f.rs @{} --after foo", secret.display());
+        let err =
+            parse_line_at(&line, 1, Some(ws.path()), Some(&global)).expect_err("outside @path");
+        let msg = err.to_string();
+        assert!(
+            !msg.contains("AKIA_NOT_A_KEY"),
+            "guard must reject before reading the file: {msg}"
+        );
+        assert!(
+            msg.contains("secret.txt") || msg.contains("escapes") || msg.contains("guard"),
+            "{msg}"
+        );
+    }
+
+    #[test]
     fn tokenize_quoted() {
         let tokens = tokenize(r#"doc.set config.json key "hello world""#).unwrap();
         assert_eq!(tokens, vec!["doc.set", "config.json", "key", "hello world"]);
@@ -252,7 +275,13 @@ mod basic {
         // is a file in the process cwd. Must not treat the third token as a path.
         let dir = tempfile::TempDir::new().unwrap();
         std::fs::write(dir.path().join("notes.md"), "title\n").unwrap();
-        let op = parse_line_at("replace notes.md title Cargo.toml", 1, Some(dir.path())).unwrap();
+        let op = parse_line_at(
+            "replace notes.md title Cargo.toml",
+            1,
+            Some(dir.path()),
+            None,
+        )
+        .unwrap();
         assert!(matches!(
             op,
             Operation::Replace {
@@ -268,7 +297,8 @@ mod basic {
     fn parse_line_replace_cli_order_hint_when_third_arg_is_file_under_cwd() {
         let dir = tempfile::TempDir::new().unwrap();
         std::fs::write(dir.path().join("target.txt"), "hello\n").unwrap();
-        let err = parse_line_at("replace hello hi target.txt", 1, Some(dir.path())).unwrap_err();
+        let err =
+            parse_line_at("replace hello hi target.txt", 1, Some(dir.path()), None).unwrap_err();
         let msg = err.to_string();
         assert!(
             msg.contains("PATH OLD NEW") && msg.contains("not a file"),

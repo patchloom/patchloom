@@ -444,6 +444,7 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             // Pre-read to compute removed headings for structured output,
             // then route the actual write through the engine.
             let cwd = global.resolve_cwd()?;
+            global.check_paths_contained(&cwd, files.iter().map(String::as_str))?;
             let file = if files.len() == 1 {
                 files[0].clone()
             } else {
@@ -474,7 +475,7 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     global.emit_json_items(&removed)?;
                 } else if !global.json && !global.quiet {
                     for h in &removed {
-                        eprintln!("md: removed duplicate: {h}");
+                        eprintln!("{}", dedupe_human_line(h));
                     }
                 }
             }
@@ -599,6 +600,7 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 Err(e) => return map_md_resolve_err(global, e),
             };
             let cwd = global.resolve_cwd()?;
+            global.check_paths_contained(&cwd, files.iter().map(String::as_str))?;
             let single_path = (files.len() == 1).then(|| files[0].clone());
             let mut issues = Vec::new();
             for file in &files {
@@ -748,6 +750,10 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             execute_md_op(op, global, &file, &check_msg, &apply_msg)
         }
     }
+}
+
+fn dedupe_human_line(heading: &str) -> String {
+    format!("md: would remove duplicate: {heading}")
 }
 
 #[path = "md_tests.rs"]

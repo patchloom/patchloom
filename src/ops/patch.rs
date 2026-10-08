@@ -347,6 +347,9 @@ pub fn parse_patch(input: &str) -> Result<Vec<PatchFile>, String> {
     // When `diff --git` has copy from/to then ---/+++, do not treat path
     // inequality as rename (would delete the copy source on apply).
     let mut suppress_path_rename = false;
+    // Hunked `copy from` falls through to the ---/+++ parser. Remember the
+    // source so apply loads it instead of editing the destination in place.
+    let mut pending_copy_from: Option<String> = None;
 
     while i < lines.len() {
         // Pure git rename (100% similarity) often has no ---/+++ headers:
@@ -411,6 +414,9 @@ pub fn parse_patch(input: &str) -> Result<Vec<PatchFile>, String> {
             // normal path consume it (may include content hunks).
             if j < lines.len() && is_file_header(&lines, j) {
                 suppress_path_rename = saw_copy;
+                if saw_copy {
+                    pending_copy_from = copy_from_meta.clone();
+                }
                 i = j;
                 // fall through to ---/+++ handler below (no continue)
             } else if let (Some(from), Some(to)) = (rename_from_meta, rename_to_meta) {
@@ -561,13 +567,9 @@ pub fn parse_patch(input: &str) -> Result<Vec<PatchFile>, String> {
                         }
                         i += 1;
                     }
-                } else if i < lines.len()
-                    && (lines[i].starts_with("@@ ")
-                        || is_file_header(&lines, i)
-                        || lines[i].starts_with("diff "))
-                {
+                } else {
                     return Err(format!(
-                        "incomplete hunk for {path}: remaining -{remaining_old} +{remaining_new} before next header"
+                        "incomplete hunk for {path}: remaining -{remaining_old} +{remaining_new}"
                     ));
                 }
 
@@ -603,7 +605,7 @@ pub fn parse_patch(input: &str) -> Result<Vec<PatchFile>, String> {
             is_creation,
             is_deletion,
             rename_from,
-            copy_from: None,
+            copy_from: pending_copy_from.take(),
             unsupported: None,
         });
     }

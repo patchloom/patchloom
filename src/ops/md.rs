@@ -118,6 +118,11 @@ pub fn non_fenced_lines(content: &str) -> impl Iterator<Item = (usize, &str)> {
 /// CommonMark: the underline must be at least one `=` or `-` character,
 /// optionally preceded by up to 3 spaces and followed by trailing spaces.
 fn cannot_be_setext_text(line: &str) -> bool {
+    // A second underline must not become the next heading's text.
+    // `Foo\n---\n---\n` otherwise builds an inverted body range and panics.
+    if setext_underline_level(line).is_some() {
+        return true;
+    }
     if line.starts_with('\t') {
         return true;
     }
@@ -303,6 +308,11 @@ pub fn parse_headings(content: &str) -> Vec<HeadingInfo> {
     headings
 }
 
+fn section_body(content: &str) -> (&str, usize) {
+    let body = crate::ops::file::strip_utf8_bom(content);
+    (body, content.len() - body.len())
+}
+
 fn line_byte_starts(content: &str) -> Vec<usize> {
     let mut starts = vec![0];
     let bytes = content.as_bytes();
@@ -343,7 +353,8 @@ fn normalize_heading_query(heading: &str) -> (Option<usize>, &str) {
 
 /// Check whether a heading matches the parsed query (level + text).
 fn heading_matches(h: &HeadingInfo, level: Option<usize>, query: &str) -> bool {
-    h.text.trim() == query && level.is_none_or(|lvl| h.level == lvl)
+    let query_text = strip_atx_closing(query);
+    h.text.trim() == query_text && level.is_none_or(|lvl| h.level == lvl)
 }
 
 /// Section lookup failure for mutators and unique heading resolution (#2100).
@@ -433,8 +444,9 @@ fn matching_heading_indices<'a>(
 /// Zero matches → [`SectionError::NotFound`]. Two or more →
 /// [`SectionError::Ambiguous`]. Parity with replace/apply-fragment unique anchors.
 pub fn find_section(content: &str, heading: &str) -> Result<(usize, usize), SectionError> {
-    let headings = parse_headings(content);
-    let offsets = line_byte_starts(content);
+    let (body, bom) = section_body(content);
+    let headings = parse_headings(body);
+    let offsets = line_byte_starts(body);
     let (level, query) = normalize_heading_query(heading);
     let matches = matching_heading_indices(&headings, level, query);
     match matches.len() {
@@ -442,15 +454,18 @@ pub fn find_section(content: &str, heading: &str) -> Result<(usize, usize), Sect
         1 => {
             let h = matches[0];
             let body_start = if h.body_line < offsets.len() {
-                offsets[h.body_line]
+                offsets[h.body_line] + bom
             } else {
                 content.len()
             };
             let body_end = if h.line_end < offsets.len() {
-                offsets[h.line_end]
+                offsets[h.line_end] + bom
             } else {
                 content.len()
             };
+            if body_start > body_end {
+                return Err(SectionError::NotFound);
+            }
             Ok((body_start, body_end))
         }
         count => Err(SectionError::Ambiguous { count }),
@@ -463,20 +478,24 @@ pub fn find_section(content: &str, heading: &str) -> Result<(usize, usize), Sect
 /// heading), this returns `(section_start, section_end)` where
 /// `section_start` is the first byte of the heading line itself.
 pub fn section_range(content: &str, heading: &str) -> Result<(usize, usize), SectionError> {
-    let headings = parse_headings(content);
-    let offsets = line_byte_starts(content);
+    let (body, bom) = section_body(content);
+    let headings = parse_headings(body);
+    let offsets = line_byte_starts(body);
     let (level, query) = normalize_heading_query(heading);
     let matches = matching_heading_indices(&headings, level, query);
     match matches.len() {
         0 => Err(SectionError::NotFound),
         1 => {
             let h = matches[0];
-            let section_start = offsets[h.line_start];
+            let section_start = offsets[h.line_start] + bom;
             let section_end = if h.line_end < offsets.len() {
-                offsets[h.line_end]
+                offsets[h.line_end] + bom
             } else {
                 content.len()
             };
+            if section_start > section_end {
+                return Err(SectionError::NotFound);
+            }
             Ok((section_start, section_end))
         }
         count => Err(SectionError::Ambiguous { count }),
@@ -617,7 +636,11 @@ fn ensure_eol_before_payload(out: &mut String, eol: &str) {
 }
 
 fn ends_with_blank_line(s: &str) -> bool {
-    s.ends_with("\n\n") || s.ends_with("\r\n\r\n") || s.ends_with("\r\r")
+    if s.ends_with("\n\n") || s.ends_with("\r\n\r\n") || s.ends_with("\r\r") {
+        return true;
+    }
+    // The body between `# A\n\n# B` is a single newline.
+    !s.is_empty() && s.chars().all(|c| c == '\n' || c == '\r')
 }
 
 fn skip_one_eol(s: &str) -> &str {

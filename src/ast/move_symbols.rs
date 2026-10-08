@@ -194,7 +194,10 @@ pub(crate) fn move_symbols_from_symbols(
 fn preamble_line_count(source: &str, lang: Language) -> usize {
     let lines: Vec<&str> = crate::ops::file::text_lines(source).collect();
     let mut i = 0usize;
-    if lines.first().is_some_and(|l| l.starts_with("#!")) {
+    if lines
+        .first()
+        .is_some_and(|l| l.starts_with("#!") && !l.starts_with("#!["))
+    {
         i += 1;
     }
     match lang {
@@ -560,6 +563,28 @@ mod tests {
         let attr_pos = result.target_content.find("#![deny").unwrap();
         let moved_pos = result.target_content.find("fn moved").unwrap();
         assert!(doc_pos < moved_pos && attr_pos < moved_pos);
+    }
+
+    #[test]
+    fn move_position_start_does_not_split_multiline_inner_attribute() {
+        let source = "fn moved() {}\n";
+        let target = "#![cfg_attr(\n    not(test),\n)]\nfn existing() {}\n";
+        let result = move_symbols(
+            source,
+            target,
+            &["moved".into()],
+            MovePosition::Start,
+            Language::Rust,
+        )
+        .unwrap();
+        let attr_open = result.target_content.find("#![cfg_attr(").unwrap();
+        let attr_close = result.target_content.find(")]").unwrap();
+        let moved_pos = result.target_content.find("fn moved").unwrap();
+        assert!(
+            attr_open < attr_close && attr_close < moved_pos,
+            "moved symbol must follow the whole attribute: {}",
+            result.target_content
+        );
     }
 
     #[test]

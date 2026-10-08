@@ -1342,6 +1342,36 @@ mod format_preservation {
     use super::*;
 
     #[test]
+    fn doubled_setext_underline_does_not_panic() {
+        let content = "Foo\n---\n---\n";
+        let result = replace_section_in(content, "Foo", "x");
+        assert!(result.is_ok(), "{result:?}");
+    }
+
+    #[test]
+    fn replace_section_keeps_blank_line_when_body_is_only_that_line() {
+        let content = "# A\n\n# B\n";
+        let result = replace_section_in(content, "# A", "new").unwrap();
+        assert_eq!(result, "# A\nnew\n\n# B\n");
+    }
+
+    #[test]
+    fn heading_query_strips_closing_hashes() {
+        let content = "## API ##\n\nbody\n";
+        let result = replace_section_in(content, "## API ##", "next").unwrap();
+        assert!(result.contains("next"), "{result}");
+        assert!(!result.contains("body"), "{result}");
+    }
+
+    #[test]
+    fn insert_before_heading_keeps_leading_bom_at_start() {
+        let content = "\u{feff}# Title\n\nbody\n";
+        let result = insert_before_heading_in(content, "Title", "## X").unwrap();
+        assert!(result.starts_with('\u{feff}'), "{result:?}");
+        assert!(result.contains("## X\n"), "{result}");
+    }
+
+    #[test]
     fn replace_section_setext_preserves_underline() {
         // Use same-level headings so the section is bounded.
         let content = "Title\n=====\n\nOld body\n\nNext\n=====\nKeep\n";

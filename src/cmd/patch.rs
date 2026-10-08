@@ -787,6 +787,9 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 record_staged_patch_dest(&cwd, pf, &mut created, &mut deleted);
                 continue;
             }
+            // Content reads follow the last component so a workspace symlink
+            // to an outside file is guard_rejected. Copy sources are reads too.
+            global.check_paths_contained(&cwd, [load_rel])?;
             // Strict target load (#1896); creation allows missing → empty.
             let original = match load_patch_target(&file_path, load_rel, pf.is_creation) {
                 Ok(s) => s,
@@ -957,9 +960,9 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 record_staged_patch_dest(&cwd, pf, &mut created, &mut deleted);
                 continue;
             }
-            // PathGuard dest first so --contain escape is guard_rejected,
-            // not Strict peel (parity with apply).
-            ensure_patch_dest_contained(global, &cwd, &file_path)?;
+            // Follow the load path. Entry mode would accept a workspace
+            // symlink and load_text_strict would then read outside.
+            global.check_paths_contained(&cwd, [load_rel])?;
             // Merge check: missing target → empty (creation / hunked merge).
             let original = match load_patch_target(&file_path, load_rel, true) {
                 Ok(s) => s,
@@ -1135,12 +1138,13 @@ fn run_begin_patch_check(
     cwd: &std::path::Path,
     diff_text: &str,
 ) -> anyhow::Result<u8> {
+    let guard = global.workspace_guard(cwd)?;
     let results = match crate::api::apply_begin_patch(
         diff_text,
         cwd,
         None,
         crate::api::ApplyMode::Preview,
-        None,
+        guard.as_ref(),
     ) {
         Ok(r) => r,
         Err(e) => {
@@ -1317,6 +1321,72 @@ mod tests {
         assert_ne!(
             kind, "already_exists",
             "must classify from status, not English dest-clobber text"
+        );
+    }
+
+    #[test]
+    fn begin_patch_check_contain_rejects_parent_escape() {
+        let tmp = TempDir::new().unwrap();
+        let diff_path = tmp.path().join("begin.patch");
+        std::fs::write(
+            &diff_path,
+            "*** Begin Patch\n*** Update File: ../outside.rs\n@@\n-a\n+b\n*** End Patch\n",
+        )
+        .unwrap();
+        let mut global = GlobalFlags::test_with_cwd(tmp.path());
+        global.contain = true;
+        let code = run(
+            PatchArgs {
+                action: PatchAction::Check {
+                    file: Some(diff_path.to_string_lossy().into_owned()),
+                    stdin: false,
+                },
+                write: Default::default(),
+            },
+            &global,
+        )
+        .unwrap();
+        assert_eq!(code, exit::FAILURE);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn merge_check_contain_rejects_symlink_to_outside_file() {
+        use std::os::unix::fs::symlink;
+        let tmp = TempDir::new().unwrap();
+        let outside = TempDir::new().unwrap();
+        let secret = outside.path().join("secret.txt");
+        std::fs::write(&secret, "AKIA_NOT_A_KEY\n").unwrap();
+        symlink(&secret, tmp.path().join("link.txt")).unwrap();
+        let diff_path = tmp.path().join("merge.patch");
+        std::fs::write(
+            &diff_path,
+            "--- a/link.txt\n+++ b/link.txt\n@@ -1 +1 @@\n-AKIA_NOT_A_KEY\n+other\n",
+        )
+        .unwrap();
+        let mut global = GlobalFlags::test_with_cwd(tmp.path());
+        global.contain = true;
+        global.check = true;
+        let err = run(
+            PatchArgs {
+                action: PatchAction::Merge {
+                    file: Some(diff_path.to_string_lossy().into_owned()),
+                    stdin: false,
+                    allow_conflicts: false,
+                },
+                write: Default::default(),
+            },
+            &global,
+        )
+        .expect_err("symlink out of the workspace");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("link.txt") && !msg.contains("AKIA_NOT_A_KEY"),
+            "guard must reject the link before reading it: {msg}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&secret).unwrap(),
+            "AKIA_NOT_A_KEY\n"
         );
     }
 

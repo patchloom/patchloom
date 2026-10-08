@@ -206,7 +206,7 @@ pub fn execute_plan_direct(
         ));
     }
 
-    if result.no_effective_changes {
+    if result.no_effective_changes && !plan.has_lifecycle_steps() {
         let output = build_full_tx_output("success", &mut result, &effective_cwd);
         return Ok(output);
     }
@@ -557,6 +557,46 @@ mod tests {
                 .iter()
                 .all(|w| !w.contains("apply = true is ignored")),
             "execute_plan_direct must not print apply-ignore warning: {warnings:?}"
+        );
+    }
+
+    #[test]
+    fn format_step_runs_when_replace_is_already_satisfied() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir.path().join("test.txt"), "same\n").unwrap();
+        let mut plan = minimal_plan(crate::plan::SCHEMA_VERSION);
+        plan.operations = vec![crate::plan::Operation::Replace {
+            path: Some("test.txt".into()),
+            glob: None,
+            regex: false,
+            old: "same".into(),
+            new_text: Some("same".into()),
+            nth: None,
+            insert_before: None,
+            insert_after: None,
+            case_insensitive: false,
+            multiline: false,
+            whole_line: false,
+            word_boundary: false,
+            range: None,
+            before_context: None,
+            after_context: None,
+            if_exists: false,
+            unique: false,
+            require_change: false,
+            command_position: false,
+            fuzzy: false,
+            min_fuzzy_score: None,
+            allow_absent_old: false,
+        }];
+        plan.format = Some(vec![crate::plan::FormatStep {
+            cmd: "echo format-ran>ran-format".into(),
+            timeout: Some(10),
+        }]);
+        let output = execute_plan_direct(plan, dir.path(), None).expect("plan ok");
+        assert!(
+            dir.path().join("ran-format").is_file(),
+            "format must run when the replace is already satisfied: {output:?}"
         );
     }
 

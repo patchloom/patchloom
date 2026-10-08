@@ -1318,7 +1318,7 @@ mod regression {
         let diff = "\
 --- a/config.sql
 +++ b/config.sql
-@@ -1,4 +1,4 @@
+@@ -1,3 +1,3 @@
  SELECT 1;
 --- old slow query
 +++ new fast query
@@ -1807,6 +1807,19 @@ copy to dst.rs
             "copy must not become rename, got {:?}",
             files[0].rename_from
         );
+        assert_eq!(files[0].copy_from.as_deref(), Some("src.rs"));
+    }
+
+    #[test]
+    fn truncated_hunk_at_eof_is_rejected() {
+        let diff = "\
+--- a/f.txt
++++ b/f.txt
+@@ -1,2 +1,2 @@
+-old
+";
+        let err = parse_patch(diff).expect_err("truncated hunk");
+        assert!(err.contains("incomplete hunk"), "{err}");
     }
 
     #[test]

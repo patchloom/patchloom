@@ -77,6 +77,10 @@ pub(crate) fn enforce_guard_for_op(
                     g.check_path(&pf.path)
                         .map_err(crate::fallback::EditError::guard_rejected)?;
                 }
+                if let Some(from) = &pf.copy_from {
+                    g.check_path(from)
+                        .map_err(crate::fallback::EditError::guard_rejected)?;
+                }
             }
         }
         return Ok(());

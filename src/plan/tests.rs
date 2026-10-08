@@ -934,6 +934,26 @@ fn parse_plan_collects_unknown_keys_without_failing() {
 }
 
 #[test]
+fn operation_command_key_warns_format_step_command_does_not() {
+    let json = r#"{
+        "version": 1,
+        "operations": [
+            {"op":"replace","path":"a.txt","old":"a","new":"b","command":"cargo fmt"}
+        ],
+        "format": [{"command":"true"}]
+    }"#;
+    let plan = parse_plan(json).expect("format step command alias must parse");
+    let steps = plan.format.expect("format step");
+    assert_eq!(steps.len(), 1);
+    assert_eq!(steps[0].cmd, "true");
+    let warns = take_unknown_plan_key_warnings();
+    assert!(
+        warns.iter().any(|w| w.contains("command")),
+        "operation command must warn: {warns:?}"
+    );
+}
+
+#[test]
 fn parse_plan_agent_preset_and_expected_sha256_are_known() {
     let json = r#"{
         "version": 1,
