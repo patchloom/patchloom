@@ -124,8 +124,9 @@ pub fn find_and_load(start: &Path) -> Option<(ProjectConfig, PathBuf)> {
     find_and_load_opts(start, false)
 }
 
-/// Fail-closed load for CLI and tx. Missing file is `Ok(None)`; read or parse
-/// failure is `Err` (`parse_error`).
+/// Fail-closed load for CLI and tx. A missing file, or a probe whose parent
+/// path is a file (`NotADirectory` on Linux), is `Ok(None)`. A real read or
+/// parse failure is `Err` (`parse_error`).
 pub fn find_and_load_strict(start: &Path) -> anyhow::Result<Option<(ProjectConfig, PathBuf)>> {
     let in_git = git_ceiling(start).is_some();
     let mut dir = start.to_path_buf();
@@ -167,7 +168,12 @@ fn git_ceiling(start: &Path) -> Option<PathBuf> {
 fn read_config_file(candidate: &Path) -> anyhow::Result<Option<ProjectConfig>> {
     let meta = match std::fs::symlink_metadata(candidate) {
         Ok(meta) => meta,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e)
+            if e.kind() == std::io::ErrorKind::NotFound
+                || e.kind() == std::io::ErrorKind::NotADirectory =>
+        {
+            return Ok(None);
+        }
         Err(e) => {
             return Err(crate::exit::ParseErrorError {
                 msg: format!("could not read {}: {e}", candidate.display()),
@@ -445,6 +451,15 @@ color = "always"
     fn find_and_load_returns_none_when_missing() {
         let dir = TempDir::new().unwrap();
         assert!(find_and_load(dir.path()).is_none());
+    }
+
+    #[test]
+    fn find_and_load_strict_ignores_config_probe_through_a_file() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("not-a-dir");
+        std::fs::write(&file, "nope\n").unwrap();
+        let loaded = find_and_load_strict(&file).expect("a file path is not a config read error");
+        assert!(loaded.is_none());
     }
 
     #[test]
