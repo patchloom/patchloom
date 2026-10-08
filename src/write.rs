@@ -1348,7 +1348,9 @@ pub(crate) fn run_format_command_ext(
     // Priority 2a: catch-all command
     if let Some(ref cmd) = config.command {
         refuse_contained_format_cmd(global, cmd)?;
-        let result = crate::exec::run_with_timeout(cmd, timeout_secs, cwd)?;
+        let result = crate::exec::run_with_timeout(cmd, timeout_secs, cwd).map_err(|e| {
+            crate::exit::FormatFailedError::new(format!("format command failed ({cmd}): {e}"))
+        })?;
         if !result.status.success() && show_format_warn {
             eprintln!(
                 "warning: format command failed ({}): {}",
@@ -1407,8 +1409,11 @@ pub(crate) fn run_format_command_ext(
                             result.stderr_head.trim()
                         );
                     }
-                    Err(e) if show_format_warn => {
-                        eprintln!("warning: formatter for .{ext} error on {file}: {e}");
+                    Err(e) => {
+                        return Err(crate::exit::FormatFailedError::new(format!(
+                            "formatter for .{ext} failed on {file}: {e}"
+                        ))
+                        .into());
                     }
                     _ => {}
                 }

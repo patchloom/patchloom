@@ -1815,6 +1815,45 @@ mod format_command_tests {
     }
 
     #[test]
+    fn config_command_timeout_is_format_failed() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut global = test_global_flags();
+        global.format_timeout = Some(1);
+        let config = crate::config::FormatConfig {
+            auto: Some(true),
+            command: Some("sleep 30".into()),
+            by_extension: std::collections::HashMap::new(),
+        };
+        let err = run_format_command_ext(&global, dir.path(), None, Some(&config)).unwrap_err();
+        assert!(
+            crate::exit::is_format_failed(&err),
+            "config format timeout must be FormatFailedError: {err}"
+        );
+        assert!(err.to_string().contains("timed out"), "{err}");
+    }
+
+    #[test]
+    fn config_extension_timeout_is_format_failed() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut global = test_global_flags();
+        global.format_timeout = Some(1);
+        let mut by_ext = std::collections::HashMap::new();
+        by_ext.insert("txt".into(), "sh -c 'sleep 30'".into());
+        let config = crate::config::FormatConfig {
+            auto: Some(true),
+            command: None,
+            by_extension: by_ext,
+        };
+        let err = run_format_command_ext(&global, dir.path(), Some(&["note.txt"]), Some(&config))
+            .unwrap_err();
+        assert!(
+            crate::exit::is_format_failed(&err),
+            "per-extension format timeout must be FormatFailedError: {err}"
+        );
+        assert!(err.to_string().contains("timed out"), "{err}");
+    }
+
+    #[test]
     fn run_format_command_ext_auto_none_skips() {
         let dir = tempfile::tempdir().unwrap();
         let global = test_global_flags();
