@@ -105,39 +105,43 @@ pub fn run_with_timeout(cmd: &str, timeout_secs: u64, cwd: &Path) -> anyhow::Res
 
     let deadline = std::time::Instant::now() + Duration::from_secs(timeout_secs);
     let mut status = None;
+    // Stderr EOF is not process exit. A command can close fd 2 and keep
+    // running (`exec python3 -c 'os.close(2); sleep'`). Waiting here would
+    // drop the deadline.
+    let mut stderr_head: Option<String> = None;
     loop {
         if std::time::Instant::now() >= deadline {
             kill_process_tree(&mut child);
-            let stderr_head = stderr_rx
-                .recv_timeout(Duration::from_millis(500))
-                .unwrap_or_default();
+            let stderr_head = stderr_head.unwrap_or_else(|| {
+                stderr_rx
+                    .recv_timeout(Duration::from_millis(500))
+                    .unwrap_or_default()
+            });
             anyhow::bail!("timed out after {timeout_secs}s: {stderr_head}");
         }
         if status.is_none() {
             status = child.try_wait()?;
         }
-        match stderr_rx.recv_timeout(POLL_INTERVAL) {
-            Ok(stderr_head) => {
-                let status = match status.or(child.try_wait()?) {
-                    Some(status) => status,
-                    None => child.wait()?,
-                };
-                return Ok(ShellResult {
-                    status,
-                    stderr_head,
-                });
+        // Both must be done. A shell can exit while a grandchild still
+        // holds stderr, and a process can close stderr and keep running.
+        if status.is_some() && stderr_head.is_some() {
+            let status = status.take().expect("checked is_some");
+            let stderr_head = stderr_head.take().expect("checked is_some");
+            return Ok(ShellResult {
+                status,
+                stderr_head,
+            });
+        }
+        if stderr_head.is_none() {
+            match stderr_rx.recv_timeout(POLL_INTERVAL) {
+                Ok(text) => stderr_head = Some(text),
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    stderr_head = Some(String::new());
+                }
             }
-            Err(mpsc::RecvTimeoutError::Timeout) => {}
-            Err(mpsc::RecvTimeoutError::Disconnected) => {
-                let status = match status.or(child.try_wait()?) {
-                    Some(status) => status,
-                    None => child.wait()?,
-                };
-                return Ok(ShellResult {
-                    status,
-                    stderr_head: String::new(),
-                });
-            }
+        } else {
+            std::thread::sleep(POLL_INTERVAL);
         }
     }
 }
@@ -229,6 +233,24 @@ mod tests {
             err.contains("timed out"),
             "expected timeout error, got: {err}"
         );
+    }
+
+    #[test]
+    #[cfg(not(windows))]
+    fn run_with_timeout_kills_process_that_closes_stderr() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let started = std::time::Instant::now();
+        let result = run_with_timeout(
+            "exec python3 -c 'import os,time; os.close(2); time.sleep(30)'",
+            1,
+            dir.path(),
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "closing stderr must not disable the timeout"
+        );
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("timed out"), "expected timeout, got: {err}");
     }
 
     #[test]
