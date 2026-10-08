@@ -1914,7 +1914,8 @@ mod format_command_tests {
             command: None,
             by_extension: by_ext,
         };
-        // Should NOT bail even though formatter fails (advisory formatting)
+        // A non-zero by-extension exit warns and returns Ok.
+        // Spawn errors and timeouts return FormatFailedError.
         run_format_command_ext(&global, dir.path(), Some(&["test.rs"]), Some(&config)).unwrap();
     }
 
