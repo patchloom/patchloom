@@ -10,6 +10,7 @@ mod basic {
     }
 
     #[test]
+    #[cfg(feature = "ast")]
     fn contain_rejects_at_path_before_read() {
         let ws = tempfile::TempDir::new().unwrap();
         let outside = tempfile::TempDir::new().unwrap();
