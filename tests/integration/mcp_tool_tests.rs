@@ -2038,6 +2038,45 @@ copy to dst.rs\n";
     client.cancel().await.unwrap();
 }
 
+/// Git copy must not read a source outside the MCP workspace.
+#[tokio::test]
+async fn test_mcp_apply_patch_copy_from_outside_workspace_is_rejected() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let outside = TempDir::new().unwrap();
+    let secret = outside.path().join("secret.txt");
+    fs::write(&secret, "AKIA_NOT_A_KEY\n").unwrap();
+    fs::write(dir.path().join("inside.txt"), "kept\n").unwrap();
+
+    let diff = "\
+diff --git a/../secret.txt b/inside.txt\n\
+similarity index 100%\n\
+copy from ../secret.txt\n\
+copy to inside.txt\n";
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) =
+        call_tool_value(&client, "apply_patch", serde_json::json!({"diff": diff})).await;
+    assert!(is_error, "outside copy source must fail: {val}");
+    let s = val.to_string();
+    assert!(
+        s.contains("secret.txt") || s.contains("escapes") || s.contains("guard"),
+        "guard must name the copy source: {s}"
+    );
+    assert!(
+        !s.contains("AKIA_NOT_A_KEY"),
+        "error must not include the outside file bytes: {s}"
+    );
+    assert_eq!(fs::read_to_string(&secret).unwrap(), "AKIA_NOT_A_KEY\n");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("inside.txt")).unwrap(),
+        "kept\n"
+    );
+    client.cancel().await.unwrap();
+}
+
 /// Pure rename of a workspace symlink whose *target* is outside must succeed
 /// with entry-mode PathGuard (follow mode rejected the link; #2120 apply_patch
 /// parity with execute_plan).
