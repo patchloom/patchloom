@@ -34,11 +34,14 @@ CLI / API boundary
   → commit/format inside finalize when apply/confirm accepts
 ```
 
-**Post-write format:** Explicit `--format` (or format-timeout) failures return
-`FormatFailedError` → JSON `error_kind: format_failed` (exit 1). Files may
-already be committed; remappers must use `exit::classify_typed_error` so the
-kind is not dropped (see doc write remapper bug #1634). Config/auto by-extension
-formatters warn only and do not fail the write.
+**Post-write format:** Explicit `--format`, `[defaults] format`, and a
+`[format] command` that config apply copies onto `global.format` return
+`FormatFailedError` (`error_kind: format_failed`, exit 1) on a non-zero
+exit, a spawn error, or a timeout. Files may already be committed;
+remappers must use `exit::classify_typed_error` so the kind is not
+dropped (see doc write remapper bug #1634). `[format.by_extension]` warns
+on a non-zero exit and continues. A spawn error or a timeout on those
+formatters is also `format_failed`.
 
 **Rule:** `match classify_write_mode` must only appear in `src/cmd/write_mode.rs`.
 Emit hooks for custom paths are grouped in `FinalizeCallbacks` (no per-command

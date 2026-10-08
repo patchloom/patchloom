@@ -1278,15 +1278,18 @@ fn restore_shared_inode(path: &Path, staged: &Path) -> std::io::Result<()> {
 /// Run a post-write format command if configured.
 ///
 /// Checks `global.no_format` first (skips all formatting).
-/// If `global.format` is set (via CLI `--format` or `defaults.format`),
-/// runs that single command on the cwd.
-/// Otherwise, if a `FormatConfig` with `by_extension` entries is provided,
-/// runs per-extension formatters on the modified files.
+/// If `global.format` is set (CLI `--format`, `[defaults] format`, or
+/// `[format] command` copied onto that field), runs that one command.
+/// A non-zero exit, a spawn error, or a timeout returns
+/// [`crate::exit::FormatFailedError`] (`error_kind: format_failed`).
+/// The write may already be on disk.
 ///
-/// Formatter errors are reported to stderr but do **not** cause a bail.
-/// This matches the design principle that formatting is advisory: the
-/// write operation already succeeded and the files are correct, just
-/// not yet formatted.
+/// When that field is unset and `[format] auto` is true, `by_extension`
+/// commands still run. A non-zero exit warns on stderr (suppressed for
+/// `--quiet`, `--json`, and `--jsonl`) and the call continues. A spawn
+/// error or a timeout returns `FormatFailedError` and skips later files.
+/// The same split applies when this runner is given a `[format] command`
+/// while `global.format` is unset.
 #[cfg(feature = "cli")]
 pub(crate) fn run_format_command(
     global: &crate::cli::global::GlobalFlags,
