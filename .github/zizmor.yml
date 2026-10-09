@@ -15,7 +15,8 @@ rules:
       - release.yml
       - update-branches.yml
   # pull_request_target is required so GITHUB_TOKEN can approve/title-check.
-  # Neither workflow checks out PR head.
+  # dependabot-auto-merge checks out the default branch for the gate
+  # script. It does not check out the PR head. pr-title does not check out.
   dangerous-triggers:
     ignore:
       - dependabot-auto-merge.yml
