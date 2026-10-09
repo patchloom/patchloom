@@ -36,14 +36,27 @@ jobs:
         uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Approve and enable auto-merge (patch/minor only)
-        if: steps.metadata.outputs.update-type != 'version-update:semver-major'
+      # Default branch only. pull_request_target must not run the PR head.
+      - name: Checkout auto-merge gate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: Decide whether the bump is a real major
+        id: gate
+        env:
+          UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
+          DEPS_JSON: ${{ steps.metadata.outputs.updated-dependencies-json }}
+          PREVIOUS_VERSION: ${{ steps.metadata.outputs.previous-version }}
+        run: python3 scripts/dependabot_auto_merge_gate.py
+      - name: Approve and enable auto-merge
+        if: steps.gate.outputs.auto_merge == 'true'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           PR_URL: ${{ github.event.pull_request.html_url }}
         run: |
           gh pr review --approve "$PR_URL"
           gh pr merge --auto --squash "$PR_URL"
-      - name: Skip major updates
-        if: steps.metadata.outputs.update-type == 'version-update:semver-major'
-        run: echo "Skipping major version update -- requires manual review"
+      - name: Skip real major updates
+        if: steps.gate.outputs.auto_merge != 'true'
+        run: echo "Skipping a real semver-major update. It needs a manual review."
