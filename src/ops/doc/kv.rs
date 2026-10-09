@@ -150,15 +150,12 @@ fn parse_ini(content: &str) -> anyhow::Result<Value> {
 }
 
 /// `[name]`, optionally followed by an inline `;` or `#` comment.
-/// An unclosed `[` line must not leave later keys in the previous section.
+/// A `]` inside that comment is still a comment.
 fn parse_ini_section(trimmed: &str) -> Option<String> {
     if !trimmed.starts_with('[') {
         return None;
     }
     let end = trimmed.find(']')?;
-    if trimmed[end + 1..].contains(']') {
-        return None;
-    }
     let inner = &trimmed[1..end];
     if inner.is_empty() || inner.contains('[') {
         return None;
@@ -687,6 +684,33 @@ mod tests {
         let got = parse_kv("[db] ; primary\nport=1\n", FileFormat::Ini).unwrap();
         assert_eq!(got["db"]["port"], json!("1"));
         assert!(got.get("port").is_none());
+    }
+
+    #[test]
+    fn ini_section_comment_may_contain_bracket() {
+        for src in [
+            "[db] ; see [backup]\nport=1\n",
+            "[db] # range [1, 2]\nport=1\n",
+        ] {
+            let got = parse_kv(src, FileFormat::Ini).unwrap();
+            assert_eq!(got["db"]["port"], json!("1"), "{src}");
+            assert!(got.get("port").is_none(), "{src}");
+        }
+        let orig = "[db] ; see [backup]\nport=1\n";
+        let old = parse_kv(orig, FileFormat::Ini).unwrap();
+        let mut new = old.clone();
+        new["db"]["port"] = json!("2");
+        let out = serialize_kv_preserving(orig, &old, &new, FileFormat::Ini).unwrap();
+        assert!(out.contains("[db] ; see [backup]"), "{out}");
+        assert!(out.contains("port=2"), "{out}");
+    }
+
+    #[test]
+    fn ini_junk_after_header_is_parse_error() {
+        for src in ["[db]]\nport=1\n", "[db] trailing\nport=1\n"] {
+            let err = parse_kv(src, FileFormat::Ini).unwrap_err();
+            assert!(crate::exit::is_parse_error(&err), "{src}: {err}");
+        }
     }
 
     #[test]
