@@ -6,7 +6,7 @@ use serde_json::{Map, Value};
 pub fn parse_kv(content: &str, format: FileFormat) -> anyhow::Result<Value> {
     match format {
         FileFormat::Env => Ok(Value::Object(parse_env(content))),
-        FileFormat::Ini => Ok(parse_ini(content)),
+        FileFormat::Ini => parse_ini(content),
         FileFormat::Properties => Ok(Value::Object(parse_properties(content))),
         _ => Err(crate::exit::InvalidInputError {
             msg: "internal: parse_kv called for a non-kv format".into(),
@@ -107,15 +107,20 @@ fn parse_prop_assignment(line: &str) -> Option<(String, String)> {
     ))
 }
 
-fn parse_ini(content: &str) -> Value {
+fn parse_ini(content: &str) -> anyhow::Result<Value> {
     let mut root = Map::new();
     let mut section: Option<String> = None;
-    for line in content.lines() {
+    for (idx, line) in content.lines().enumerate() {
         let trimmed = line.trim();
         if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with(';') {
             continue;
         }
-        if let Some(name) = parse_ini_section(trimmed) {
+        if trimmed.starts_with('[') {
+            let Some(name) = parse_ini_section(trimmed) else {
+                return Err(anyhow::Error::new(crate::exit::ParseErrorError {
+                    msg: format!("invalid ini section header on line {}: {trimmed}", idx + 1),
+                }));
+            };
             section = Some(name);
             continue;
         }
@@ -141,15 +146,29 @@ fn parse_ini(content: &str) -> Value {
             }
         }
     }
-    Value::Object(root)
+    Ok(Value::Object(root))
 }
 
+/// `[name]`, optionally followed by an inline `;` or `#` comment.
+/// An unclosed `[` line must not leave later keys in the previous section.
 fn parse_ini_section(trimmed: &str) -> Option<String> {
-    let inner = trimmed.strip_prefix('[')?.strip_suffix(']')?;
-    if inner.is_empty() || inner.contains('[') || inner.contains(']') {
+    if !trimmed.starts_with('[') {
         return None;
     }
-    Some(inner.to_string())
+    let end = trimmed.find(']')?;
+    if trimmed[end + 1..].contains(']') {
+        return None;
+    }
+    let inner = &trimmed[1..end];
+    if inner.is_empty() || inner.contains('[') {
+        return None;
+    }
+    let rest = trimmed[end + 1..].trim_start();
+    if rest.is_empty() || rest.starts_with(';') || rest.starts_with('#') {
+        Some(inner.to_string())
+    } else {
+        None
+    }
 }
 
 fn unquote(s: &str) -> String {
@@ -652,6 +671,22 @@ mod tests {
         let out = serialize_kv_preserving(orig, &old, &new, FileFormat::Env).unwrap();
         assert!(out.contains("# keep"));
         assert!(out.contains("A=2"));
+    }
+
+    #[test]
+    fn ini_unclosed_section_is_parse_error() {
+        let err = parse_kv("[db]\nport=1\n[broken\nport=2\n", FileFormat::Ini).unwrap_err();
+        assert!(crate::exit::is_parse_error(&err), "{err}");
+        let msg = err.to_string();
+        assert!(msg.contains("line 3"), "{msg}");
+        assert!(msg.contains("[broken"), "{msg}");
+    }
+
+    #[test]
+    fn ini_section_inline_comment_stays_in_section() {
+        let got = parse_kv("[db] ; primary\nport=1\n", FileFormat::Ini).unwrap();
+        assert_eq!(got["db"]["port"], json!("1"));
+        assert!(got.get("port").is_none());
     }
 
     #[test]
