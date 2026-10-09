@@ -417,9 +417,9 @@ Replace fail-closed / shell-token options: CLI `replace --require-change` and `-
 
 | Tool | Strength | Where patchloom differs |
 |------|----------|------------------------|
-| **jq** | JSON query/transform | patchloom also handles YAML, TOML, markdown; batches across files; preserves comments |
-| **yq** | YAML/JSON query/transform | patchloom preserves YAML comments via CST editing; adds markdown, batching, atomic transactions |
-| **dasel** | Multi-format get/set | patchloom adds batching (N edits in 1 call), atomic rollback, format/validate lifecycle |
+| **jq** | JSON query/transform | patchloom also handles YAML, TOML, env, ini, properties, and markdown; batches across files; preserves comments |
+| **yq** | YAML/JSON query/transform | patchloom preserves YAML comments via CST editing; also edits TOML, env, ini, properties, and markdown; adds batching and atomic transactions |
+| **dasel** | Multi-format get/set | patchloom `doc` covers JSON, YAML, TOML, env, ini, and properties. It adds batching (N edits in 1 call), atomic rollback, and a format/validate lifecycle. XML, HCL, CSV, and KDL stay with dasel or yq |
 | **sd** | Regex find/replace | patchloom adds parser-backed structured edits; batching; never produces invalid JSON/YAML |
 | **comby** | Structural code patterns | patchloom targets config files and agent workflows, not source code pattern matching |
 
@@ -477,7 +477,7 @@ The YAML parser changes the value at the selector path. Comments, indentation, k
 
 | Need | Prefer | Prefer something else |
 |------|--------|------------------------|
-| JSON/YAML/TOML by path | Patchloom `doc` | Generic filesystem MCP / blind text replace |
+| JSON, YAML, TOML, env, ini, or properties by path | Patchloom `doc` | Generic filesystem MCP / blind text replace |
 | Multi-doc YAML stream | Patchloom selectors (`0.key`) | Bare key on stream root |
 | Structural code pattern search | [ast-grep](https://github.com/ast-grep/ast-grep) | Text-only grep for shapes |
 | Identifier rename in code | Patchloom `ast rename` | Fuzzy text replace for symbols |

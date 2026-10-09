@@ -125,7 +125,7 @@ Since launch, new capabilities have been added including line-oriented replace f
 We would love feedback on:
 
 - Which agent workflows hit friction that Patchloom could smooth
-- Missing operations or formats (`.env`? `.ini`? HCL?)
+- Missing operations or document formats (XML, CSV, or HCL documents). `.env`, `.ini`, and `.properties` are already `doc` formats.
 - MCP integration with agents we have not tested yet
 - Performance reports from real-world projects
 
