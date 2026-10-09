@@ -352,9 +352,13 @@ pub fn serialize_value_preserving(
 ) -> anyhow::Result<String> {
     match format {
         FileFormat::Toml => {
-            let mut doc: toml_edit::DocumentMut = toml_source_for_parse(original_content)
-                .parse()
-                .map_err(|e| {
+            let source = toml_source_for_parse(original_content);
+            let prepared = toml_preserve::prepare_oversize_toml_source(&source).map_err(|e| {
+                anyhow::Error::new(crate::exit::ParseErrorError {
+                    msg: format!("TOML re-parse for comment preservation: {e}"),
+                })
+            })?;
+            let mut doc: toml_edit::DocumentMut = prepared.parse().map_err(|e| {
                 anyhow::Error::new(crate::exit::ParseErrorError {
                     msg: format!("TOML re-parse for comment preservation: {e}"),
                 })
@@ -1066,11 +1070,15 @@ pub fn parse_doc(content: &str, format: &FileFormat) -> anyhow::Result<serde_jso
             }
         }
         FileFormat::Toml => {
-            let mut val: serde_json::Value =
-                toml_edit::de::from_str(&toml_source_for_parse(content)).map_err(|e| {
-                    anyhow::Error::new(crate::exit::ParseErrorError { msg: e.to_string() })
-                })?;
+            let source = toml_source_for_parse(content);
+            let prepared = toml_preserve::prepare_oversize_toml_source(&source).map_err(|e| {
+                anyhow::Error::new(crate::exit::ParseErrorError { msg: e.to_string() })
+            })?;
+            let mut val: serde_json::Value = toml_edit::de::from_str(&prepared).map_err(|e| {
+                anyhow::Error::new(crate::exit::ParseErrorError { msg: e.to_string() })
+            })?;
             unwrap_toml_datetimes(&mut val);
+            toml_preserve::unwrap_oversize_toml_integers(&mut val);
             Ok(val)
         }
     }
@@ -1393,7 +1401,14 @@ fn serialize_multi_document_yaml(
 /// Parse a CLI value string into a [`serde_json::Value`].
 ///
 /// Recognition order: JSON-quoted string, JSON object/array, boolean, null,
-/// i64, f64, then fallback to bare string.
+/// i64, u64, an all-digit token above `u64::MAX` (kept as a decimal string),
+/// f64, then a bare string.
+///
+/// u64 is before f64 so an integer above `i64::MAX` keeps every digit.
+/// Parsing those tokens as f64 rounds them (`9223372036854775808` was
+/// written as `9223372036854776000.0`). An all-digit token above `u64::MAX`
+/// stays a decimal string: `serde_json::Number` cannot store it, and f64
+/// would round it. A quoted CLI string is unchanged.
 ///
 /// Bare floats (`2.0`, `1.5`) become JSON numbers by design (batch/CLI
 /// contract). For a string version field, quote the value:
@@ -1423,9 +1438,20 @@ pub fn parse_value(s: &str) -> serde_json::Value {
     if s == "null" {
         return serde_json::Value::Null;
     }
-    // Integer
+    // Integer that fits in TOML's i64.
     if let Ok(n) = s.parse::<i64>() {
         return serde_json::Value::Number(n.into());
+    }
+    // Positive integer that fits in u64 but not i64. The TOML writer
+    // emits these digits; f64 would round them.
+    if let Ok(n) = s.parse::<u64>() {
+        return serde_json::Value::Number(n.into());
+    }
+    // All digits, but larger than u64. A float would round the text.
+    // Keep the decimal string. Do not treat a quoted CLI string as an
+    // integer: that input already returned above.
+    if !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()) {
+        return serde_json::Value::String(s.to_string());
     }
     // Float
     if let Ok(n) = s.parse::<f64>()

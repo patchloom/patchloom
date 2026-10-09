@@ -734,6 +734,132 @@ mod basic {
     }
 
     #[test]
+    fn parse_value_integer_above_i64_max_stays_integral() {
+        let v = parse_value("9223372036854775808");
+        let n = v.as_number().expect("number");
+        assert!(n.is_u64(), "{v}");
+        assert!(!n.is_f64(), "{v}");
+        assert_eq!(n.as_u64(), Some(9_223_372_036_854_775_808));
+
+        let mut new_root = json!({"n": 1});
+        new_root["n"] = v.clone();
+        let rendered =
+            serialize_value_preserving("n = 1\n", &json!({"n": 1}), &new_root, &FileFormat::Toml)
+                .unwrap();
+        assert!(rendered.contains("n = 9223372036854775808"), "{rendered}");
+        assert!(
+            !rendered.contains('.') && !rendered.contains("__patchloom_oversize_int:"),
+            "{rendered}"
+        );
+        let reparsed = parse_doc(&rendered, &FileFormat::Toml).unwrap();
+        assert_eq!(reparsed["n"], v);
+        assert!(
+            !reparsed.to_string().contains("__patchloom_oversize_int:"),
+            "{reparsed}"
+        );
+    }
+
+    #[test]
+    fn parse_toml_u64_max_round_trips() {
+        let digits = "18446744073709551615";
+        let v = parse_value(digits);
+        assert_eq!(v.as_u64(), Some(u64::MAX));
+        let mut new_root = json!({"n": 1});
+        new_root["n"] = v.clone();
+        let rendered =
+            serialize_value_preserving("n = 1\n", &json!({"n": 1}), &new_root, &FileFormat::Toml)
+                .unwrap();
+        assert!(rendered.contains(&format!("n = {digits}")), "{rendered}");
+        assert!(!rendered.contains('.'), "{rendered}");
+        assert_eq!(parse_doc(&rendered, &FileFormat::Toml).unwrap()["n"], v);
+    }
+
+    #[test]
+    fn parse_toml_oversize_integer_keeps_sibling_comment() {
+        let orig = "n = 9223372036854775808 # keep\nother = 1\n";
+        let old = parse_doc(orig, &FileFormat::Toml).unwrap();
+        assert_eq!(old["n"].as_u64(), Some(9_223_372_036_854_775_808));
+        let mut new_root = old.clone();
+        new_root["other"] = json!(2);
+        let rendered =
+            serialize_value_preserving(orig, &old, &new_root, &FileFormat::Toml).unwrap();
+        assert!(rendered.contains("n = 9223372036854775808"), "{rendered}");
+        assert!(rendered.contains("# keep"), "{rendered}");
+        assert!(rendered.contains("other = 2"), "{rendered}");
+        assert!(
+            !rendered.contains("__patchloom_oversize_int:"),
+            "{rendered}"
+        );
+        assert_eq!(
+            parse_doc(&rendered, &FileFormat::Toml).unwrap()["n"].as_u64(),
+            Some(9_223_372_036_854_775_808)
+        );
+    }
+
+    #[test]
+    fn parse_toml_two_oversize_integers() {
+        let orig = "a = 9223372036854775808\nb = 18446744073709551615\n";
+        let val = parse_doc(orig, &FileFormat::Toml).unwrap();
+        assert_eq!(val["a"].as_u64(), Some(9_223_372_036_854_775_808));
+        assert_eq!(val["b"].as_u64(), Some(u64::MAX));
+        assert!(!val.to_string().contains("__patchloom_oversize_int:"));
+    }
+
+    #[test]
+    fn parse_value_above_u64_max_stays_decimal_string() {
+        let digits = "18446744073709551616";
+        let v = parse_value(digits);
+        assert_eq!(v, json!(digits));
+        let mut new_root = json!({"n": 1});
+        new_root["n"] = v.clone();
+        let rendered =
+            serialize_value_preserving("n = 1\n", &json!({"n": 1}), &new_root, &FileFormat::Toml)
+                .unwrap();
+        assert!(
+            rendered.contains(&format!("\"{digits}\"")),
+            "quoted CLI and bare digits share one string value, so the file stays a string: {rendered}"
+        );
+        assert!(!rendered.contains("18446744073709552000"), "{rendered}");
+        assert!(
+            !rendered.contains("__patchloom_oversize_int:"),
+            "{rendered}"
+        );
+        assert_eq!(parse_doc(&rendered, &FileFormat::Toml).unwrap()["n"], v);
+
+        let quoted = parse_value(&format!("\"{digits}\""));
+        assert_eq!(quoted, v);
+    }
+
+    #[test]
+    fn parse_toml_bare_integer_above_u64_max_reads_exact_digits() {
+        let digits = "18446744073709551616";
+        let orig = format!("n = {digits} # keep\nother = 1\n");
+        let old = parse_doc(&orig, &FileFormat::Toml).unwrap();
+        assert_eq!(old["n"], json!(digits));
+        let mut new_root = old.clone();
+        new_root["other"] = json!(2);
+        let rendered =
+            serialize_value_preserving(&orig, &old, &new_root, &FileFormat::Toml).unwrap();
+        assert!(rendered.contains(digits), "{rendered}");
+        assert!(rendered.contains("# keep"), "{rendered}");
+        assert!(!rendered.contains("18446744073709552000"), "{rendered}");
+        assert!(
+            !rendered.contains("__patchloom_oversize_int:"),
+            "{rendered}"
+        );
+        assert_eq!(
+            parse_doc(&rendered, &FileFormat::Toml).unwrap()["n"],
+            json!(digits)
+        );
+    }
+
+    #[test]
+    fn parse_toml_syntax_error_is_not_rewritten() {
+        let err = parse_doc("n = [\n", &FileFormat::Toml).unwrap_err();
+        assert!(crate::exit::is_parse_error(&err), "{err}");
+    }
+
+    #[test]
     fn parse_value_bool() {
         assert_eq!(parse_value("true"), json!(true));
     }

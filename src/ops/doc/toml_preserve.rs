@@ -106,6 +106,8 @@ pub(crate) fn apply_value_diff(
 /// Marker wrapped around a JSON integer that does not fit in TOML's i64.
 /// `toml_edit` rejects that integer and would otherwise store an f64.
 /// [`restore_oversize_toml_integers`] writes the digits back as a bare integer.
+/// [`prepare_oversize_toml_source`] quotes the same tokens so a later read
+/// can parse the file, then [`unwrap_oversize_toml_integers`] removes the marker.
 const OVERSIZE_INT_MARK: &str = "__patchloom_oversize_int:";
 
 fn json_number_to_toml(n: &serde_json::Number) -> toml_edit::Value {
@@ -116,6 +118,113 @@ fn json_number_to_toml(n: &serde_json::Number) -> toml_edit::Value {
         return toml_edit::Value::from(format!("{OVERSIZE_INT_MARK}{n}"));
     }
     toml_edit::Value::from(n.as_f64().unwrap_or(0.0))
+}
+
+/// Quote bare integers `toml_edit` rejects so the document can be parsed.
+///
+/// Only an `integer number overflowed` span that is all ASCII digits is
+/// rewritten, and only once per digit run. Any other parse error is left
+/// for the caller.
+pub(super) fn prepare_oversize_toml_source(
+    content: &str,
+) -> Result<std::borrow::Cow<'_, str>, toml_edit::TomlError> {
+    let mut rewritten: Option<String> = None;
+    let limit = ascii_digit_runs(content).saturating_add(1);
+    for _ in 0..limit {
+        let current = rewritten.as_deref().unwrap_or(content);
+        match current.parse::<toml_edit::DocumentMut>() {
+            Ok(_) => {
+                return Ok(match rewritten {
+                    Some(text) => std::borrow::Cow::Owned(text),
+                    None => std::borrow::Cow::Borrowed(content),
+                });
+            }
+            Err(err) => {
+                let Some(next) = rewrite_integer_overflow(current, err.message(), err.span())
+                else {
+                    return Err(err);
+                };
+                rewritten = Some(next);
+            }
+        }
+    }
+    Ok(std::borrow::Cow::Owned(
+        rewritten.unwrap_or_else(|| content.to_string()),
+    ))
+}
+
+fn ascii_digit_runs(content: &str) -> usize {
+    let mut runs = 0usize;
+    let mut in_run = false;
+    for byte in content.bytes() {
+        let digit = byte.is_ascii_digit();
+        if digit && !in_run {
+            runs += 1;
+        }
+        in_run = digit;
+    }
+    runs
+}
+
+fn rewrite_integer_overflow(
+    text: &str,
+    message: &str,
+    span: Option<std::ops::Range<usize>>,
+) -> Option<String> {
+    if !message.contains("integer number overflowed") {
+        return None;
+    }
+    let span = span?;
+    if span.start > span.end
+        || span.end > text.len()
+        || !text.is_char_boundary(span.start)
+        || !text.is_char_boundary(span.end)
+    {
+        return None;
+    }
+    let token = &text[span.start..span.end];
+    if token.is_empty() || !token.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let mut out = String::with_capacity(text.len() + OVERSIZE_INT_MARK.len() + 2);
+    out.push_str(&text[..span.start]);
+    out.push('"');
+    out.push_str(OVERSIZE_INT_MARK);
+    out.push_str(token);
+    out.push('"');
+    out.push_str(&text[span.end..]);
+    Some(out)
+}
+
+/// Replace oversize-integer markers with a `u64` number, or with the decimal
+/// text when the digits do not fit in `u64`.
+pub(super) fn unwrap_oversize_toml_integers(val: &mut serde_json::Value) {
+    match val {
+        serde_json::Value::String(text) => {
+            let Some(digits) = text.strip_prefix(OVERSIZE_INT_MARK) else {
+                return;
+            };
+            if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+                return;
+            }
+            if let Ok(n) = digits.parse::<u64>() {
+                *val = serde_json::Value::Number(n.into());
+            } else {
+                *val = serde_json::Value::String(digits.to_string());
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for child in items {
+                unwrap_oversize_toml_integers(child);
+            }
+        }
+        serde_json::Value::Object(map) => {
+            for child in map.values_mut() {
+                unwrap_oversize_toml_integers(child);
+            }
+        }
+        _ => {}
+    }
 }
 
 pub(super) fn restore_oversize_toml_integers(text: &str) -> String {
