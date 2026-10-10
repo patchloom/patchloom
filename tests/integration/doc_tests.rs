@@ -5102,7 +5102,7 @@ fn test_doc_get_ini_and_env() {
         .arg("a")
         .assert()
         .success()
-        .stdout(predicate::str::contains("1"));
+        .stdout(predicate::eq("1\n"));
 
     Command::cargo_bin("patchloom")
         .unwrap()
@@ -5111,7 +5111,7 @@ fn test_doc_get_ini_and_env() {
         .args(["doc", "get", ".env", "A"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("1"));
+        .stdout(predicate::eq("1\n"));
 }
 
 #[test]
@@ -5127,7 +5127,7 @@ fn test_doc_get_format_override_env() {
         .arg("A")
         .assert()
         .success()
-        .stdout(predicate::str::contains("1"));
+        .stdout(predicate::eq("1\n"));
 }
 
 #[test]
