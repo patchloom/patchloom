@@ -567,7 +567,7 @@ pub(crate) fn build_tx_output_with_meta(
         // `changes[].matched_text` / `old` at the plan layer.
         matched_text: top_matched_text,
         refused,
-        warnings: crate::plan::unknown_plan_key_warnings(),
+        warnings: crate::plan::take_unknown_plan_key_warnings(),
     }
 }
 
@@ -706,7 +706,7 @@ pub(crate) fn build_error_output_with_suggested_op(
         match_count: None,
         matched_text: None,
         refused: Vec::new(),
-        warnings: crate::plan::unknown_plan_key_warnings(),
+        warnings: crate::plan::take_unknown_plan_key_warnings(),
     }
 }
 
@@ -861,6 +861,58 @@ mod tests {
         let out = build_error_output("rollback", "fail", Some("ts123"));
         assert_eq!(out.backup_session.as_deref(), Some("ts123"));
         assert!(out.error.as_ref().unwrap().contains("patchloom undo"));
+    }
+
+    /// Building a report must take the thread-local unknown-key warning so
+    /// the next call on this worker does not copy it (#2486 still warns).
+    #[test]
+    fn build_output_consumes_unknown_plan_warnings() {
+        let bogus = || {
+            serde_json::json!({
+                "operations": [{
+                    "op": "replace",
+                    "path": "a.txt",
+                    "old": "a",
+                    "new": "b",
+                    "bogus_key": true
+                }]
+            })
+        };
+        crate::plan::plan_from_json_value(bogus()).expect("unknown key must still parse");
+        let dir = tempfile::TempDir::new().unwrap();
+        let out = build_tx_output_with_meta(
+            "success",
+            true,
+            dir.path(),
+            TxOutputMetaInputs {
+                changes: &[],
+                deletions: &HashSet::new(),
+                existed_before: &HashSet::new(),
+                replace_match_meta: &HashMap::new(),
+                renames: &[],
+            },
+        );
+        assert!(
+            out.warnings.iter().any(|w| w.contains("bogus_key")),
+            "success report must include the unknown key: {:?}",
+            out.warnings
+        );
+        assert!(
+            crate::plan::unknown_plan_key_warnings().is_empty(),
+            "success report must consume the thread-local warning"
+        );
+
+        crate::plan::plan_from_json_value(bogus()).expect("unknown key must still parse");
+        let err = build_error_output("not_found", "missing", None);
+        assert!(
+            err.warnings.iter().any(|w| w.contains("bogus_key")),
+            "error report must include the unknown key: {:?}",
+            err.warnings
+        );
+        assert!(
+            crate::plan::unknown_plan_key_warnings().is_empty(),
+            "error report must consume the thread-local warning"
+        );
     }
 
     // ---- exit_code_from_tx_output ----
