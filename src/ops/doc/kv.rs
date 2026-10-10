@@ -196,15 +196,31 @@ fn parse_prop_assignment(line: &str) -> Option<(String, String)> {
     if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with('!') {
         return None;
     }
-    let sep = trimmed.find(['=', ':'])?;
-    let key = trimmed[..sep].trim();
+    let sep = find_unescaped_prop_sep(trimmed)?;
+    let key = decode_properties_value(trimmed[..sep].trim());
     if key.is_empty() {
         return None;
     }
-    Some((
-        key.to_string(),
-        decode_properties_value(trimmed[sep + 1..].trim()),
-    ))
+    Some((key, decode_properties_value(trimmed[sep + 1..].trim())))
+}
+
+/// First `=` or `:` that is not escaped with `\`.
+fn find_unescaped_prop_sep(s: &str) -> Option<usize> {
+    let mut escaped = false;
+    for (idx, c) in s.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if c == '\\' {
+            escaped = true;
+            continue;
+        }
+        if c == '=' || c == ':' {
+            return Some(idx);
+        }
+    }
+    None
 }
 
 fn parse_ini(content: &str) -> anyhow::Result<Value> {
@@ -523,7 +539,7 @@ fn replace_flat_value(line: &str, new_s: &str, style: KvStyle) -> String {
             )
         }
         KvStyle::Properties => {
-            let sep_at = rest.find(['=', ':']).unwrap_or(rest.len());
+            let sep_at = find_unescaped_prop_sep(rest).unwrap_or(rest.len());
             let sep = rest.as_bytes().get(sep_at).copied().unwrap_or(b'=') as char;
             (
                 format!("{prefix}{}{sep}", rest[..sep_at].trim_end()),
@@ -859,6 +875,23 @@ mod tests {
         assert!(out.contains("# c"));
         assert!(out.contains("[server]"));
         assert!(out.contains("port=443"));
+    }
+
+    #[test]
+    fn properties_escaped_separator_stays_in_the_key() {
+        let orig = "path\\=name=value\na\\:b=c\n";
+        let old = parse_kv(orig, FileFormat::Properties).unwrap();
+        assert_eq!(old["path=name"], json!("value"));
+        assert_eq!(old["a:b"], json!("c"));
+        assert!(old.get("path\\").is_none());
+        let mut new = old.clone();
+        new["path=name"] = json!("next");
+        let out = serialize_kv_preserving(orig, &old, &new, FileFormat::Properties).unwrap();
+        assert!(out.contains("path\\=name=next"), "{out:?}");
+        assert!(out.contains("a\\:b=c"), "{out:?}");
+        let got = parse_kv(&out, FileFormat::Properties).unwrap();
+        assert_eq!(got["path=name"], json!("next"));
+        assert_eq!(got["a:b"], json!("c"));
     }
 
     #[test]
