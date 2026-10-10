@@ -386,6 +386,53 @@ fn value_as_string(v: &Value) -> Option<String> {
     }
 }
 
+/// Env and ini readers split on the first `=` and do not treat `\` as an
+/// escape in the key. A key that would parse as a different name is rejected.
+fn env_key_reads_back(key: &str, value: &str) -> bool {
+    let line = format!("{key}={}", quote_if_needed(value));
+    parse_env_assignment(&line).is_some_and(|(k, _)| k == key)
+}
+
+fn ensure_env_key_reads_back(key: &str, value: &str) -> anyhow::Result<()> {
+    if env_key_reads_back(key, value) {
+        return Ok(());
+    }
+    Err(crate::exit::InvalidInputError {
+        msg: format!(
+            "invalid .env key {key}: the written line would be read back as a different key"
+        ),
+    }
+    .into())
+}
+
+fn ini_key_reads_back(key: &str, value: &str) -> bool {
+    parse_ini_assignment(&format!("{key}={value}")).is_some_and(|(k, _)| k == key)
+}
+
+fn ensure_ini_key_reads_back(key: &str, value: &str) -> anyhow::Result<()> {
+    if ini_key_reads_back(key, value) {
+        return Ok(());
+    }
+    Err(crate::exit::InvalidInputError {
+        msg: format!(
+            "invalid .ini key {key}: the written line would be read back as a different key"
+        ),
+    }
+    .into())
+}
+
+fn ensure_ini_section_reads_back(name: &str) -> anyhow::Result<()> {
+    if parse_ini_section(&format!("[{name}]")).as_deref() == Some(name) {
+        return Ok(());
+    }
+    Err(crate::exit::InvalidInputError {
+        msg: format!(
+            "invalid .ini section {name}: the written header would be read back as a different section"
+        ),
+    }
+    .into())
+}
+
 fn serialize_env(value: &Value) -> anyhow::Result<String> {
     let obj = value
         .as_object()
@@ -397,6 +444,7 @@ fn serialize_env(value: &Value) -> anyhow::Result<String> {
         let s = value_as_string(v).ok_or_else(|| crate::exit::InvalidInputError {
             msg: format!(".env key {k} must be a scalar"),
         })?;
+        ensure_env_key_reads_back(k, &s)?;
         out.push_str(k);
         out.push('=');
         out.push_str(&quote_if_needed(&s));
@@ -434,6 +482,7 @@ fn serialize_ini(value: &Value) -> anyhow::Result<String> {
     for (k, v) in obj {
         match v {
             Value::Object(inner) => {
+                ensure_ini_section_reads_back(k)?;
                 out.push('[');
                 out.push_str(k);
                 out.push_str("]\n");
@@ -441,6 +490,7 @@ fn serialize_ini(value: &Value) -> anyhow::Result<String> {
                     let s = value_as_string(iv).ok_or_else(|| crate::exit::InvalidInputError {
                         msg: format!(".ini key {k}.{ik} must be a scalar"),
                     })?;
+                    ensure_ini_key_reads_back(ik, &s)?;
                     out.push_str(ik);
                     out.push('=');
                     out.push_str(&s);
@@ -451,6 +501,7 @@ fn serialize_ini(value: &Value) -> anyhow::Result<String> {
                 let s = value_as_string(v).ok_or_else(|| crate::exit::InvalidInputError {
                     msg: format!(".ini key {k} must be a scalar or section object"),
                 })?;
+                ensure_ini_key_reads_back(k, &s)?;
                 out.push_str(k);
                 out.push('=');
                 out.push_str(&s);
@@ -506,6 +557,10 @@ fn splice_flat(
         if let Some(idx) = find_last_flat_line(lines, key, style) {
             lines[idx] = replace_flat_value(&lines[idx], &new_s, style);
         } else {
+            // None falls through to serialize_env, which rejects the key.
+            if matches!(style, KvStyle::Env) && !env_key_reads_back(key, &new_s) {
+                return None;
+            }
             let written_key = match style {
                 KvStyle::Env => key.clone(),
                 KvStyle::Properties => encode_properties_key(key),
@@ -593,6 +648,9 @@ fn splice_ini(
     for (key, new_v) in new_obj {
         match new_v {
             Value::Object(inner) => {
+                if parse_ini_section(&format!("[{key}]")).as_deref() != Some(key.as_str()) {
+                    return None;
+                }
                 let old_inner = old_obj.get(key).and_then(Value::as_object);
                 ensure_ini_section(lines, key);
                 for (ik, iv) in inner {
@@ -603,6 +661,9 @@ fn splice_ini(
                     if let Some(idx) = find_ini_key_line(lines, key, ik) {
                         lines[idx] = replace_ini_value(&lines[idx], &new_s);
                     } else if let Some(end) = ini_section_end(lines, key) {
+                        if !ini_key_reads_back(ik, &new_s) {
+                            return None;
+                        }
                         lines.insert(end, format!("{ik}={new_s}"));
                     }
                 }
@@ -630,6 +691,9 @@ fn splice_ini(
                 if let Some(idx) = find_ini_global_key(lines, key) {
                     lines[idx] = replace_ini_value(&lines[idx], &new_s);
                 } else {
+                    if !ini_key_reads_back(key, &new_s) {
+                        return None;
+                    }
                     lines.push(format!("{key}={new_s}"));
                 }
             }
@@ -837,6 +901,63 @@ mod tests {
         let got = parse_kv(&out, FileFormat::Env).unwrap();
         assert_eq!(got["A"], json!("2"));
         assert_eq!(got["B"], json!("three"));
+    }
+
+    #[test]
+    fn env_key_that_would_read_back_as_another_key_is_invalid_input() {
+        let orig = "A=1\n";
+        let old = parse_kv(orig, FileFormat::Env).unwrap();
+        for key in ["A=B", "#tag", "A B"] {
+            let mut new = old.clone();
+            new[key] = json!("c");
+            let err = serialize_kv_preserving(orig, &old, &new, FileFormat::Env).unwrap_err();
+            assert!(crate::exit::is_invalid_input(&err), "{key}: {err}");
+            assert!(err.to_string().contains(key), "{key}: {err}");
+        }
+        let err = serialize_kv(&json!({"A=B": "c"}), FileFormat::Env).unwrap_err();
+        assert!(crate::exit::is_invalid_input(&err), "{err}");
+    }
+
+    #[test]
+    fn env_value_may_contain_equals() {
+        let orig = "A=1\n";
+        let old = parse_kv(orig, FileFormat::Env).unwrap();
+        let mut new = old.clone();
+        new["A"] = json!("b=c");
+        let out = serialize_kv_preserving(orig, &old, &new, FileFormat::Env).unwrap();
+        let got = parse_kv(&out, FileFormat::Env).unwrap();
+        assert_eq!(got["A"], json!("b=c"));
+        assert!(got.get("b").is_none());
+    }
+
+    #[test]
+    fn ini_key_that_would_read_back_as_another_key_is_invalid_input() {
+        let orig = "[db]\nport=1\na=1\n";
+        let old = parse_kv(orig, FileFormat::Ini).unwrap();
+        for key in ["a=b", ";hidden", "#hidden"] {
+            let mut new = old.clone();
+            new["db"][key] = json!("c");
+            let err = serialize_kv_preserving(orig, &old, &new, FileFormat::Ini).unwrap_err();
+            assert!(crate::exit::is_invalid_input(&err), "{key}: {err}");
+            assert!(err.to_string().contains(key), "{key}: {err}");
+        }
+        let err = serialize_kv(&json!({"db": {"a=b": "c"}}), FileFormat::Ini).unwrap_err();
+        assert!(crate::exit::is_invalid_input(&err), "{err}");
+        let err = serialize_kv(&json!({"a]b": {"port": "1"}}), FileFormat::Ini).unwrap_err();
+        assert!(crate::exit::is_invalid_input(&err), "{err}");
+        assert!(err.to_string().contains("a]b"), "{err}");
+    }
+
+    #[test]
+    fn ini_value_may_contain_equals() {
+        let orig = "[db]\na=1\n";
+        let old = parse_kv(orig, FileFormat::Ini).unwrap();
+        let mut new = old.clone();
+        new["db"]["a"] = json!("b=c");
+        let out = serialize_kv_preserving(orig, &old, &new, FileFormat::Ini).unwrap();
+        let got = parse_kv(&out, FileFormat::Ini).unwrap();
+        assert_eq!(got["db"]["a"], json!("b=c"));
+        assert!(got["db"].get("b").is_none());
     }
 
     #[test]

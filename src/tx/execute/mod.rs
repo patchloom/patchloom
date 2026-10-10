@@ -367,13 +367,16 @@ pub(crate) fn flush_doc_cache_entry(
     path: PathBuf,
     cached: CachedDoc,
 ) -> anyhow::Result<()> {
+    // path_err keeps InvalidInputError (and other typed kinds) on the chain.
+    // anyhow::anyhow!("{path}: {e}") stringifies and drops error_kind.
+    let display = path.display().to_string();
     let new_content = serialize_value_preserving(
         &cached.original_text,
         &cached.old_value,
         &cached.value,
         &cached.format,
     )
-    .map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))?;
+    .map_err(|e| path_err(&display)(e))?;
     policy_finalized.remove(&path);
     update_file_content(pending, deletions, write_targets, &path, new_content);
     Ok(())
