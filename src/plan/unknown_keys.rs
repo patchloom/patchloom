@@ -81,6 +81,18 @@ pub(super) fn note_unknown_keys_from_json_value(value: &serde_json::Value) {
     record_unknown_plan_keys(collect_unknown_plan_keys(value));
 }
 
+/// Deserialize a plan from JSON that still has its original keys.
+///
+/// Records unknown-key warnings on this thread (#2486). Call it on the
+/// same thread that later builds the tx report. An MCP inline plan must
+/// use this, not a bare `Plan` deserialize, or the warning never reaches
+/// the tool result.
+pub fn plan_from_json_value(value: serde_json::Value) -> anyhow::Result<super::Plan> {
+    let plan: super::Plan = serde_json::from_value(value.clone())?;
+    note_unknown_keys_from_json_value(&value);
+    Ok(plan)
+}
+
 /// Quoted `C:\Users` is invalid YAML (`\U` escape). Peel invalid_input (#2352).
 pub(super) fn map_yaml_plan_parse_error(input: &str, err: serde_yaml_ng::Error) -> anyhow::Error {
     let msg = err.to_string();

@@ -867,6 +867,55 @@ mod basic {
 
         client.cancel().await.unwrap();
     }
+
+    /// Inline plans must warn on unknown op keys the same way `plan_path` does.
+    /// A hash pinned on the operation (tool-argument shape) is not the plan map.
+    /// #2486 keeps the write; the warning is what was missing on this path.
+    #[tokio::test]
+    async fn execute_plan_inline_warns_on_unknown_op_key() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir.path().join("a.txt"), "hello\n").unwrap();
+        let client = spawn_test_client(dir.path().to_path_buf()).await;
+        let params = rmcp::model::CallToolRequestParams::new("execute_plan").with_arguments(
+            serde_json::from_value(serde_json::json!({
+                "plan": {
+                    "version": 1,
+                    "operations": [{
+                        "op": "replace",
+                        "path": "a.txt",
+                        "old": "hello",
+                        "new": "hi",
+                        "expected_sha256": "abab"
+                    }]
+                }
+            }))
+            .unwrap(),
+        );
+        let result = client.peer().call_tool(params).await.unwrap();
+        assert!(
+            !result.is_error.unwrap_or(false),
+            "unknown op keys warn and still apply: {result:?}"
+        );
+        let text = match result.content.first() {
+            Some(rmcp::model::ContentBlock::Text(t)) => t.text.clone(),
+            other => panic!("expected text content, got {other:?}"),
+        };
+        let body: serde_json::Value = serde_json::from_str(&text).expect("tool json");
+        let warnings = body["warnings"]
+            .as_array()
+            .expect("inline plan must report warnings");
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.as_str().unwrap_or("").contains("expected_sha256")),
+            "warning must name the dropped pin: {warnings:?}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("a.txt")).unwrap(),
+            "hi\n"
+        );
+        client.cancel().await.unwrap();
+    }
 }
 
 mod security {

@@ -224,7 +224,9 @@ pub use operation::Operation;
 #[cfg(feature = "ast")]
 pub use operation::SplitTargetSpec;
 use unknown_keys::{map_yaml_plan_parse_error, note_unknown_keys_from_json_value};
-pub use unknown_keys::{take_unknown_plan_key_warnings, unknown_plan_key_warnings};
+pub use unknown_keys::{
+    plan_from_json_value, take_unknown_plan_key_warnings, unknown_plan_key_warnings,
+};
 
 /// Convert a doc-family `Operation` into a `(path, DocMutation)` pair.
 ///
@@ -455,9 +457,7 @@ pub struct ValidationStep {
 pub fn parse_plan(input: &str) -> anyhow::Result<Plan> {
     let input = crate::ops::file::strip_utf8_bom(input);
     let value: serde_json::Value = serde_json::from_str(input)?;
-    let plan: Plan = serde_json::from_value(value.clone())?;
-    note_unknown_keys_from_json_value(&value);
-    Ok(plan)
+    plan_from_json_value(value)
 }
 
 /// Parse a plan from a YAML string.
