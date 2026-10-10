@@ -412,6 +412,10 @@ impl PatchloomService {
         let svc = self.clone();
         let gate = Arc::clone(&self.io_gate);
         tokio::task::spawn_blocking(move || {
+            // A failed plan parse returns before TxOutput is built, so a
+            // previous tool's unknown-key warning can still sit on this
+            // worker. Drop it before the handler records a new one.
+            let _ = crate::plan::take_unknown_plan_key_warnings();
             // Hold the guard until the handler returns. The two `Option`s
             // exist because read and write guards are different types.
             let _write_guard;

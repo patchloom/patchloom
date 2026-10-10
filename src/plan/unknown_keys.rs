@@ -74,7 +74,54 @@ fn known_operation_keys(op_name: &str) -> Vec<String> {
     {
         keys.extend(props.keys().cloned());
     }
+    // Serde alias of `cell_id`. The schema lists the canonical name only.
+    if keys.iter().any(|k| k == "cell_id") {
+        keys.push("id".to_string());
+    }
     keys
+}
+
+/// Unknown keys inside verify, format, or validate. Top-level and
+/// operation keys stay warn-only (#2486). A dropped verify or timeout
+/// field changes the check and can still return success. `for_each`
+/// stays warn-free: existing plans carry extra keys such as `path_var`
+/// that the expander does not read.
+pub(super) fn nested_unknown_key_error(value: &serde_json::Value) -> Option<String> {
+    let obj = value.as_object()?;
+    if let Some(msg) = unknown_in_array(obj.get("verify"), &["kind", "attr", "check"], "verify") {
+        return Some(msg);
+    }
+    if let Some(msg) = unknown_in_array(obj.get("format"), &["cmd", "command", "timeout"], "format")
+    {
+        return Some(msg);
+    }
+    if let Some(msg) = unknown_in_array(
+        obj.get("validate"),
+        &["cmd", "command", "timeout", "required"],
+        "validate",
+    ) {
+        return Some(msg);
+    }
+    None
+}
+
+fn unknown_in_array(
+    value: Option<&serde_json::Value>,
+    known: &[&str],
+    label: &str,
+) -> Option<String> {
+    let items = value?.as_array()?;
+    for (i, item) in items.iter().enumerate() {
+        let Some(obj) = item.as_object() else {
+            continue;
+        };
+        for key in obj.keys() {
+            if !known.contains(&key.as_str()) {
+                return Some(format!("unknown {label} key '{key}' in {label}[{i}]"));
+            }
+        }
+    }
+    None
 }
 
 pub(super) fn note_unknown_keys_from_json_value(value: &serde_json::Value) {
@@ -89,6 +136,9 @@ pub(super) fn note_unknown_keys_from_json_value(value: &serde_json::Value) {
 /// the tool result.
 pub fn plan_from_json_value(value: serde_json::Value) -> anyhow::Result<super::Plan> {
     let plan: super::Plan = serde_json::from_value(value.clone())?;
+    if let Some(msg) = nested_unknown_key_error(&value) {
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError { msg }));
+    }
     note_unknown_keys_from_json_value(&value);
     Ok(plan)
 }

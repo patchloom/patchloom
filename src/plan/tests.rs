@@ -954,6 +954,41 @@ fn operation_command_key_warns_format_step_command_does_not() {
 }
 
 #[test]
+fn notebook_edit_id_alias_is_not_an_unknown_key() {
+    let json = r#"{
+        "version": 1,
+        "operations": [{
+            "op": "notebook.edit",
+            "path": "n.ipynb",
+            "id": "cell-1",
+            "source": "print(1)"
+        }]
+    }"#;
+    parse_plan(json).expect("id is the cell_id alias");
+    let warns = take_unknown_plan_key_warnings();
+    assert!(
+        warns.iter().all(|w| !w.contains("'id'")),
+        "cell id alias must not warn: {warns:?}"
+    );
+}
+
+#[test]
+fn verify_attribute_typo_is_invalid_input() {
+    let json = r#"{
+        "version": 1,
+        "operations": [{"op":"replace","path":"a.rs","old":"a","new":"b"}],
+        "verify": [{"kind":"function","attribute":"test"}]
+    }"#;
+    let err = parse_plan(json).expect_err("attribute is not attr");
+    let msg = err.to_string();
+    assert!(msg.contains("unknown verify key 'attribute'"), "{msg}");
+    assert!(
+        crate::exit::classify_typed_error(&err).is_some(),
+        "typo must stay invalid_input: {err:?}"
+    );
+}
+
+#[test]
 fn parse_plan_agent_preset_and_expected_sha256_are_known() {
     let json = r#"{
         "version": 1,
