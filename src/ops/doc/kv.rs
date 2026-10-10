@@ -284,6 +284,27 @@ fn parse_ini_section(trimmed: &str) -> Option<String> {
     }
 }
 
+/// Escape `\`, `=`, `:`, and a leading `#` or `!` so a new key
+/// round-trips through [`parse_prop_assignment`].
+fn encode_properties_key(s: &str) -> String {
+    let mut out = String::new();
+    for (i, c) in s.chars().enumerate() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '=' | ':' => {
+                out.push('\\');
+                out.push(c);
+            }
+            '#' | '!' if i == 0 => {
+                out.push('\\');
+                out.push(c);
+            }
+            other => out.push(other),
+        }
+    }
+    out
+}
+
 /// Java `Properties` keeps quotes. Escape `\`, newlines, tabs, and leading
 /// whitespace. Do not wrap the value in quotes.
 fn encode_properties_value(s: &str) -> String {
@@ -395,7 +416,7 @@ fn serialize_properties(value: &Value) -> anyhow::Result<String> {
         let s = value_as_string(v).ok_or_else(|| crate::exit::InvalidInputError {
             msg: format!(".properties key {k} must be a scalar"),
         })?;
-        out.push_str(k);
+        out.push_str(&encode_properties_key(k));
         out.push('=');
         out.push_str(&encode_properties_value(&s));
         out.push('\n');
@@ -485,7 +506,14 @@ fn splice_flat(
         if let Some(idx) = find_last_flat_line(lines, key, style) {
             lines[idx] = replace_flat_value(&lines[idx], &new_s, style);
         } else {
-            lines.push(format!("{key}={}", encode_flat_value(style, &new_s)));
+            let written_key = match style {
+                KvStyle::Env => key.clone(),
+                KvStyle::Properties => encode_properties_key(key),
+            };
+            lines.push(format!(
+                "{written_key}={}",
+                encode_flat_value(style, &new_s)
+            ));
         }
     }
     let mut remove = Vec::new();
@@ -892,6 +920,42 @@ mod tests {
         let got = parse_kv(&out, FileFormat::Properties).unwrap();
         assert_eq!(got["path=name"], json!("next"));
         assert_eq!(got["a:b"], json!("c"));
+    }
+
+    #[test]
+    fn properties_new_key_escapes_separator_and_bang() {
+        let orig = "other=1\n";
+        let old = parse_kv(orig, FileFormat::Properties).unwrap();
+        let mut new = old.clone();
+        new["path=name"] = json!("next");
+        new["a:b"] = json!("c");
+        new["!not"] = json!("1");
+        new["path\\"] = json!("slash");
+        new["#tag"] = json!("1");
+        let out = serialize_kv_preserving(orig, &old, &new, FileFormat::Properties).unwrap();
+        assert!(out.contains("path\\=name=next"), "{out:?}");
+        assert!(out.contains("a\\:b=c"), "{out:?}");
+        assert!(out.contains("\\!not=1"), "{out:?}");
+        assert!(out.contains("path\\\\=slash"), "{out:?}");
+        assert!(out.contains("\\#tag=1"), "{out:?}");
+        let got = parse_kv(&out, FileFormat::Properties).unwrap();
+        assert_eq!(got["other"], json!("1"));
+        assert_eq!(got["path=name"], json!("next"));
+        assert_eq!(got["a:b"], json!("c"));
+        assert_eq!(got["!not"], json!("1"));
+        assert_eq!(got["path\\"], json!("slash"));
+        assert_eq!(got["#tag"], json!("1"));
+
+        let fresh = serialize_kv_preserving(
+            "",
+            &json!({}),
+            &json!({"path=name": "next", "!not": "1"}),
+            FileFormat::Properties,
+        )
+        .unwrap();
+        let fresh_got = parse_kv(&fresh, FileFormat::Properties).unwrap();
+        assert_eq!(fresh_got["path=name"], json!("next"));
+        assert_eq!(fresh_got["!not"], json!("1"));
     }
 
     #[test]
