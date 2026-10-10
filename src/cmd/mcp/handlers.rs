@@ -1003,7 +1003,11 @@ impl PatchloomService {
     ) -> Result<CallToolResult, McpError> {
         self.blocking(move |svc| {
             let mut plan = if let Some(inline_plan) = p.plan {
-                inline_plan.0
+                // Same thread as the tx report. A bare Plan deserialize drops
+                // unknown op keys before this closure and the warning is lost.
+                crate::plan::plan_from_json_value(inline_plan.0).map_err(|e| {
+                    McpError::invalid_params(format!("failed to parse plan: {e}"), None)
+                })?
             } else if let Some(path) = &p.plan_path {
                 svc.check_path(path)?;
                 let abs = svc.cwd().join(path);

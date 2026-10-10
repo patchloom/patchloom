@@ -878,11 +878,12 @@ pub(crate) struct OperationSchemaParams {
 #[serde(deny_unknown_fields)]
 pub(crate) struct EmptyParams {}
 
-/// MCP `execute_plan.plan`. Deserializes as [`Plan`]. The published schema
-/// does not inline every operation (#2615).
+/// MCP `execute_plan.plan`. Keeps the raw object so unknown keys can be
+/// warned on the worker thread (#2486). The published schema does not
+/// inline every operation (#2615).
 #[derive(Debug, Deserialize)]
 #[serde(transparent)]
-pub(crate) struct InlinePlan(pub Plan);
+pub(crate) struct InlinePlan(pub serde_json::Value);
 
 impl schemars::JsonSchema for InlinePlan {
     fn schema_name() -> std::borrow::Cow<'static, str> {
@@ -991,7 +992,8 @@ mod tests {
             serde_json::from_str(r#"{"plan":{"version":1,"strict":false,"operations":[]}}"#)
                 .expect("plan-only payload must deserialize");
         assert_eq!(p.strict, None, "omitted top-level strict must stay None");
-        let mut plan = p.plan.expect("inline plan").0;
+        let mut plan =
+            crate::plan::plan_from_json_value(p.plan.expect("inline plan").0).expect("inline plan");
         assert_eq!(plan.strict, Some(false));
         apply_execute_plan_strict_override(&mut plan, p.strict);
         assert_eq!(
@@ -1008,7 +1010,8 @@ mod tests {
         )
         .expect("top-level strict must deserialize");
         assert_eq!(p.strict, Some(true));
-        let mut plan = p.plan.expect("inline plan").0;
+        let mut plan =
+            crate::plan::plan_from_json_value(p.plan.expect("inline plan").0).expect("inline plan");
         apply_execute_plan_strict_override(&mut plan, p.strict);
         assert_eq!(plan.strict, Some(true));
     }
@@ -1019,7 +1022,13 @@ mod tests {
             r#"{"plan":{"version":1,"ops":[{"op":"replace","path":"a.txt","old":"a","new":"b"}]}}"#,
         )
         .expect("ops alias must deserialize");
-        assert_eq!(p.plan.expect("plan").0.operations.len(), 1);
+        assert_eq!(
+            crate::plan::plan_from_json_value(p.plan.expect("plan").0)
+                .expect("inline plan")
+                .operations
+                .len(),
+            1
+        );
     }
 
     #[test]
