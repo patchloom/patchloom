@@ -234,6 +234,35 @@ fn path_err_preserves_io_not_found() {
     );
 }
 
+#[test]
+fn flush_doc_cache_keeps_invalid_input_for_ini_key() {
+    let path = PathBuf::from("t.ini");
+    let mut pending = HashMap::new();
+    let mut deletions = HashSet::new();
+    let mut write_targets = HashSet::new();
+    let mut policy_finalized = HashSet::new();
+    let cached = CachedDoc {
+        original_text: "[db]\nport=1\na=1\n".into(),
+        old_value: serde_json::json!({"db": {"port": "1", "a": "1"}}),
+        value: serde_json::json!({"db": {"port": "1", "a": "1", "a=b": "c"}}),
+        format: crate::ops::doc::FileFormat::Ini,
+    };
+    let err = flush_doc_cache_entry(
+        &mut pending,
+        &mut deletions,
+        &mut write_targets,
+        &mut policy_finalized,
+        path,
+        cached,
+    )
+    .unwrap_err();
+    assert!(crate::exit::is_invalid_input(&err), "{err}");
+    assert!(
+        pending.is_empty(),
+        "rejected key must not stage text: {pending:?}"
+    );
+}
+
 // ---- op_needs_doc_flush ----
 
 #[test]

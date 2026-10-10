@@ -880,16 +880,18 @@ jobs:
 
   ci:
     # Lightweight gate that satisfies the "ci" required status check.
-    # Reports success when build-and-test passes OR was skipped (docs-only,
-    # draft, or release-please light path). Skipped expensive jobs count as OK.
-    needs: [build-and-test, ci-windows, ci-wsl, ci-macos, msrv, msrv-macos, coverage, bench, fuzz, agent-dry-run, audit, deny, workflow-sanity]
+    # Skipped expensive jobs count as OK (docs-only, draft, schedule,
+    # merge_group, or release-please light path). A failed or cancelled
+    # paths-filter (`changes`) is not a skip: product jobs never start,
+    # and this check must go red so a filter outage cannot hide `make check`.
+    needs: [changes, build-and-test, ci-windows, ci-wsl, ci-macos, msrv, msrv-macos, coverage, bench, fuzz, agent-dry-run, audit, deny, workflow-sanity]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 1
     steps:
       - name: Gate
         run: |
-          results=("$BUILD" "$WINDOWS" "$WSL" "$MACOS" "$MSRV" "$MSRV_MACOS" "$COV" "$BENCH" "$FUZZ" "$AGENT" "$AUDIT" "$DENY" "$SANITY")
+          results=("$CHANGES" "$BUILD" "$WINDOWS" "$WSL" "$MACOS" "$MSRV" "$MSRV_MACOS" "$COV" "$BENCH" "$FUZZ" "$AGENT" "$AUDIT" "$DENY" "$SANITY")
           for r in "${results[@]}"; do
             if [ "$r" = "failure" ] || [ "$r" = "cancelled" ]; then
               echo "Upstream job failed or was cancelled: $r"
@@ -897,6 +899,7 @@ jobs:
             fi
           done
         env:
+          CHANGES: ${{ needs.changes.result }}
           BUILD: ${{ needs.build-and-test.result }}
           WINDOWS: ${{ needs.ci-windows.result }}
           WSL: ${{ needs.ci-wsl.result }}

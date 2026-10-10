@@ -8,7 +8,7 @@ Patchloom is **not** a generic filesystem MCP and **not** a drop-in replacement 
 |------------|------------------------|-----------|
 | Read / write / list files | Yes | Yes (`read`, create, delete, …) |
 | Dry-run / preview before write | Rare | Default dry-run; exit **2** when changes would apply |
-| JSON / YAML / TOML by selector | No (text edit) | `doc` (parser-backed; multi-doc YAML honesty) |
+| JSON, YAML, TOML, env, ini, properties by selector | No (text edit) | `doc` (parser-backed; multi-doc YAML honesty) |
 | Markdown section / table / bullet | No | `md` |
 | AST rename / symbol ops | No | `ast` |
 | Multi-file atomic plan + undo | No | `tx` / `batch` + `undo` |
@@ -30,7 +30,7 @@ Install notes: [MCP setup](mcp-setup.md) (Cursor / Claude / Codex paste configs 
 | Multi-document YAML stream honesty | Limited | Bare-key type_error; `0.key` / `[0]` |
 | MCP + Rust library host contracts | No | MCP + `ReplaceOptions::for_agent` |
 
-**Use yq/dasel** in human scripts and one-off shell.
+**Use yq/dasel** for XML, HCL, CSV, KDL, and other one-off human shell work. Patchloom `doc` already covers JSON, YAML, TOML, env, ini, and properties.
 
 **Use Patchloom** inside agent loops (CLI, MCP, or embedder library).
 

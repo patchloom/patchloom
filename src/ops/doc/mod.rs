@@ -45,7 +45,7 @@ thread_local! {
     static FORMAT_OVERRIDE: Cell<Option<FileFormat>> = const { Cell::new(None) };
 }
 
-/// RAII CLI `--format` override so plan/tx `detect_format(path)` sees it.
+/// RAII override for CLI `--as`, so plan/tx `detect_format(path)` sees it.
 pub struct FormatOverrideGuard {
     prev: Option<FileFormat>,
 }

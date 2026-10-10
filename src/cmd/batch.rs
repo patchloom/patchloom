@@ -522,6 +522,9 @@ fn batch_unsupported_hint(op: &str) -> Option<&'static str> {
         "apply.fragment" | "apply_fragment" | "apply-fragment" => {
             Some("not supported in batch; use a tx plan (`apply.fragment`) or MCP `apply_fragment`")
         }
+        "notebook.edit" | "notebook_edit" | "notebook-edit" => {
+            Some("not supported in batch; use a tx plan (`notebook.edit`) or MCP `notebook_edit`")
+        }
         _ => None,
     }
 }

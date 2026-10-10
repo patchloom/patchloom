@@ -1094,9 +1094,8 @@ mod error_handling {
         );
     }
 
-    // Batch intentionally does not support read, search, and patch.apply.
-    // These are tx-only operations. The tests below document this as deliberate
-    // and lock the redirect hint in the error message.
+    // Batch has no line form for read, search, patch.apply, or notebook.edit.
+    // These are tx or standalone operations. The tests below lock the redirect.
 
     #[test]
     fn parse_line_rejects_read() {
@@ -1126,6 +1125,24 @@ mod error_handling {
             msg.contains("unknown operation") && msg.contains("patchloom patch"),
             "expected standalone redirect, got: {msg}"
         );
+    }
+
+    #[test]
+    fn parse_line_rejects_notebook_edit() {
+        for line in [
+            "notebook.edit a.ipynb load x",
+            "notebook_edit a.ipynb load x",
+            "notebook-edit a.ipynb load x",
+        ] {
+            let err = parse_line(line, 1).unwrap_err();
+            let msg = err.to_string();
+            assert!(
+                msg.contains("tx plan")
+                    && msg.contains("notebook.edit")
+                    && msg.contains("notebook_edit"),
+                "expected tx/MCP redirect for '{line}', got: {msg}"
+            );
+        }
     }
 
     #[test]

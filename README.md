@@ -10,7 +10,7 @@
 [![Release](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/SebTardif/6a26adf6bfae45f530465f626c9154f4/raw/release.json&logo=github)](https://github.com/patchloom/patchloom/releases/latest)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](./LICENSE)
 
-[![Tests](https://img.shields.io/badge/tests-5700%2B%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-5800%2B%20passing-brightgreen)](#)
 [![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/SebTardif/6a26adf6bfae45f530465f626c9154f4/raw/coverage.json)](https://github.com/patchloom/patchloom/actions/workflows/ci.yml)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/13097/badge)](https://www.bestpractices.dev/projects/13097)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/patchloom/patchloom/badge)](https://securityscorecards.dev/viewer/?uri=github.com/patchloom/patchloom)
@@ -417,9 +417,9 @@ Replace fail-closed / shell-token options: CLI `replace --require-change` and `-
 
 | Tool | Strength | Where patchloom differs |
 |------|----------|------------------------|
-| **jq** | JSON query/transform | patchloom also handles YAML, TOML, markdown; batches across files; preserves comments |
-| **yq** | YAML/JSON query/transform | patchloom preserves YAML comments via CST editing; adds markdown, batching, atomic transactions |
-| **dasel** | Multi-format get/set | patchloom adds batching (N edits in 1 call), atomic rollback, format/validate lifecycle |
+| **jq** | JSON query/transform | patchloom also handles YAML, TOML, env, ini, properties, and markdown; batches across files; preserves comments |
+| **yq** | YAML/JSON query/transform | patchloom preserves YAML comments via CST editing; also edits TOML, env, ini, properties, and markdown; adds batching and atomic transactions |
+| **dasel** | Multi-format get/set | patchloom `doc` covers JSON, YAML, TOML, env, ini, and properties. It adds batching (N edits in 1 call), atomic rollback, and a format/validate lifecycle. XML, HCL, CSV, and KDL stay with dasel or yq |
 | **sd** | Regex find/replace | patchloom adds parser-backed structured edits; batching; never produces invalid JSON/YAML |
 | **comby** | Structural code patterns | patchloom targets config files and agent workflows, not source code pattern matching |
 
@@ -477,7 +477,7 @@ The YAML parser changes the value at the selector path. Comments, indentation, k
 
 | Need | Prefer | Prefer something else |
 |------|--------|------------------------|
-| JSON/YAML/TOML by path | Patchloom `doc` | Generic filesystem MCP / blind text replace |
+| JSON, YAML, TOML, env, ini, or properties by path | Patchloom `doc` | Generic filesystem MCP / blind text replace |
 | Multi-doc YAML stream | Patchloom selectors (`0.key`) | Bare key on stream root |
 | Structural code pattern search | [ast-grep](https://github.com/ast-grep/ast-grep) | Text-only grep for shapes |
 | Identifier rename in code | Patchloom `ast rename` | Fuzzy text replace for symbols |
@@ -518,7 +518,7 @@ flowchart LR
 
 ## Status
 
-5700+ tests across 25 commands. Tested with Grok 4.3, GPT-5.4, and Claude Opus 4.6.
+5800+ tests across 25 commands. Tested with Grok 4.3, GPT-5.4, and Claude Opus 4.6.
 
 | Component | Status |
 |---|---|

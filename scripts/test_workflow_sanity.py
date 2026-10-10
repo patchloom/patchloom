@@ -48,6 +48,20 @@ def main() -> int:
         )
     if "needs.workflow-sanity.result" not in ci:
         return fail("aggregate ci job must fail when workflow-sanity fails")
+    ci_job_match = re.search(r"(?ms)^  ci:\n.*\Z", ci)
+    if not ci_job_match:
+        return fail("could not isolate the aggregate ci job")
+    ci_job = ci_job_match.group(0)
+    if not re.search(r"^    needs:.*\bchanges\b", ci_job, re.M):
+        return fail("aggregate ci job must need the changes job")
+    if "CHANGES: ${{ needs.changes.result }}" not in ci_job:
+        return fail("aggregate ci job must read needs.changes.result")
+    if '"$CHANGES"' not in ci_job:
+        return fail("aggregate ci gate must read the changes result")
+    if '[ "$r" = "failure" ] || [ "$r" = "cancelled" ]' not in ci_job:
+        return fail("aggregate ci gate must exit when changes fails or is cancelled")
+    if "exit 1" not in ci_job:
+        return fail("aggregate ci gate must exit 1 on failure or cancelled")
     job_match = re.search(
         r"(?ms)^  workflow-sanity:.*?(?=^  [A-Za-z0-9_-]+:|\Z)",
         ci,
