@@ -78,7 +78,107 @@ fn parse_env_assignment(line: &str) -> Option<(String, String)> {
     if key.is_empty() || key.contains(char::is_whitespace) {
         return None;
     }
-    Some((key.to_string(), unquote(rest[eq + 1..].trim())))
+    let raw = &rest[eq + 1..];
+    Some((key.to_string(), env_value_and_comment(raw).0))
+}
+
+/// Value plus a trailing `#` comment suffix (including its leading whitespace).
+///
+/// Docker Compose env-file rules used here: a `#` comment after whitespace
+/// on an unquoted value, or after the closing quote. A `#` glued to the
+/// value, or inside quotes, stays in the value. `\"`, `\\`, and `\'` are
+/// escapes so a quote can appear inside a quoted value. Other backslash
+/// sequences stay literal.
+fn env_value_and_comment(raw: &str) -> (String, &str) {
+    if raw.is_empty() {
+        return (String::new(), "");
+    }
+    let lead = raw.len() - raw.trim_start().len();
+    let body = &raw[lead..];
+    if body.is_empty() {
+        return (String::new(), "");
+    }
+    // `KEY= # note` is an empty value. `KEY=#note` keeps the `#`.
+    if body.starts_with('#') {
+        if lead == 0 {
+            return (body.trim_end().to_string(), "");
+        }
+        return (String::new(), raw);
+    }
+    if let Some(quote @ ('"' | '\'')) = body.chars().next()
+        && let Some((value, after)) = scan_env_quoted(body, quote)
+    {
+        let trimmed = after.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            return (value, after);
+        }
+    }
+    let (value, comment) = split_unquoted_env_comment(body);
+    (value.to_string(), comment)
+}
+
+fn scan_env_quoted(raw: &str, quote: char) -> Option<(String, &str)> {
+    let mut chars = raw.char_indices();
+    if chars.next().map(|(_, c)| c) != Some(quote) {
+        return None;
+    }
+    let mut out = String::new();
+    while let Some((idx, c)) = chars.next() {
+        if c == '\\' {
+            let (_, next) = chars.next()?;
+            if quote == '"' && matches!(next, '\\' | '"' | '\'') {
+                out.push(next);
+            } else if quote == '\'' && next == '\'' {
+                out.push('\'');
+            } else {
+                out.push('\\');
+                out.push(next);
+            }
+            continue;
+        }
+        if c == quote {
+            return Some((out, &raw[idx + c.len_utf8()..]));
+        }
+        out.push(c);
+    }
+    None
+}
+
+fn split_unquoted_env_comment(raw: &str) -> (&str, &str) {
+    let mut comment_at = None;
+    for (idx, c) in raw.char_indices() {
+        if c == '#' && idx > 0 {
+            let prev = raw[..idx].chars().next_back();
+            if prev.is_some_and(|p| p.is_whitespace()) {
+                comment_at = Some(idx);
+                break;
+            }
+        }
+    }
+    let Some(hash_at) = comment_at else {
+        return (raw.trim_end(), "");
+    };
+    let mut start = hash_at;
+    while start > 0 {
+        let Some(prev) = raw[..start].chars().next_back() else {
+            break;
+        };
+        if prev.is_whitespace() {
+            start -= prev.len_utf8();
+        } else {
+            break;
+        }
+    }
+    (&raw[..start], &raw[start..])
+}
+
+fn env_inline_comment_suffix(line: &str) -> String {
+    let rest = line.trim_start();
+    let rest = rest.strip_prefix("export ").unwrap_or(rest);
+    let Some(eq) = rest.find('=') else {
+        return String::new();
+    };
+    env_value_and_comment(&rest[eq + 1..]).1.to_string()
 }
 
 fn parse_properties(content: &str) -> Map<String, Value> {
@@ -166,18 +266,6 @@ fn parse_ini_section(trimmed: &str) -> Option<String> {
     } else {
         None
     }
-}
-
-fn unquote(s: &str) -> String {
-    if s.len() >= 2 {
-        let bytes = s.as_bytes();
-        if (bytes[0] == b'"' && bytes[s.len() - 1] == b'"')
-            || (bytes[0] == b'\'' && bytes[s.len() - 1] == b'\'')
-        {
-            return s[1..s.len() - 1].to_string();
-        }
-    }
-    s.to_string()
 }
 
 /// Java `Properties` keeps quotes. Escape `\`, newlines, tabs, and leading
@@ -420,7 +508,7 @@ fn replace_flat_value(line: &str, new_s: &str, style: KvStyle) -> String {
     let trimmed_start = line.len() - line.trim_start().len();
     let prefix = &line[..trimmed_start];
     let rest = line.trim_start();
-    let (head, _) = match style {
+    let (head, suffix) = match style {
         KvStyle::Env => {
             let work = rest.strip_prefix("export ").unwrap_or(rest);
             let export = if rest.starts_with("export ") {
@@ -429,15 +517,21 @@ fn replace_flat_value(line: &str, new_s: &str, style: KvStyle) -> String {
                 ""
             };
             let eq = work.find('=').unwrap_or(work.len());
-            (format!("{prefix}{export}{}=", work[..eq].trim_end()), ())
+            (
+                format!("{prefix}{export}{}=", work[..eq].trim_end()),
+                env_inline_comment_suffix(line),
+            )
         }
         KvStyle::Properties => {
             let sep_at = rest.find(['=', ':']).unwrap_or(rest.len());
             let sep = rest.as_bytes().get(sep_at).copied().unwrap_or(b'=') as char;
-            (format!("{prefix}{}{sep}", rest[..sep_at].trim_end()), ())
+            (
+                format!("{prefix}{}{sep}", rest[..sep_at].trim_end()),
+                String::new(),
+            )
         }
     };
-    format!("{head}{}", encode_flat_value(style, new_s))
+    format!("{head}{}{suffix}", encode_flat_value(style, new_s))
 }
 
 fn encode_flat_value(style: KvStyle, s: &str) -> String {
@@ -658,6 +752,47 @@ mod tests {
         let val = parse_kv("# keep\nexport A=1\nB=two\n", FileFormat::Env).unwrap();
         assert_eq!(val["A"], json!("1"));
         assert_eq!(val["B"], json!("two"));
+    }
+
+    #[test]
+    fn env_inline_comment_is_not_part_of_the_value() {
+        let val = parse_kv(
+            "A=1 # local\nB=\"two\" # note\nC=\"hash#inside\"\nD='sq # keep'\nE=foo#bar\nF=\"say \\\"hi\\\"\"\nG='Let\\'s go!'\nH=\"a\\nb\"\nexport I=9 # shipped\nJ = 10 # spaced\nK='two' # sq\nL= # blank\nM=#keep\n",
+            FileFormat::Env,
+        )
+        .unwrap();
+        assert_eq!(val["A"], json!("1"));
+        assert_eq!(val["B"], json!("two"));
+        assert_eq!(val["C"], json!("hash#inside"));
+        assert_eq!(val["D"], json!("sq # keep"));
+        assert_eq!(val["E"], json!("foo#bar"));
+        assert_eq!(val["F"], json!("say \"hi\""));
+        assert_eq!(val["G"], json!("Let's go!"));
+        assert_eq!(val["H"], json!("a\\nb"));
+        assert_eq!(val["I"], json!("9"));
+        assert_eq!(val["J"], json!("10"));
+        assert_eq!(val["K"], json!("two"));
+        assert_eq!(val["L"], json!(""));
+        assert_eq!(val["M"], json!("#keep"));
+    }
+
+    #[test]
+    fn env_set_keeps_inline_comment() {
+        let orig = "export A=1 # local\nB=\"two\" # note\nL= # blank\n";
+        let old = parse_kv(orig, FileFormat::Env).unwrap();
+        assert_eq!(old["A"], json!("1"));
+        assert_eq!(old["L"], json!(""));
+        let mut new = old.clone();
+        new["A"] = json!("2");
+        new["B"] = json!("three");
+        new["L"] = json!("x");
+        let out = serialize_kv_preserving(orig, &old, &new, FileFormat::Env).unwrap();
+        assert!(out.contains("export A=2 # local"), "{out:?}");
+        assert!(out.contains("B=three # note"), "{out:?}");
+        assert!(out.contains("L=x # blank"), "{out:?}");
+        let got = parse_kv(&out, FileFormat::Env).unwrap();
+        assert_eq!(got["A"], json!("2"));
+        assert_eq!(got["B"], json!("three"));
     }
 
     #[test]
