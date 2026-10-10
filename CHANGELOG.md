@@ -11,6 +11,15 @@ present (applied to the GitHub Release body by the host job). Versioned
 sections below are managed by release-please.
 
 
+## [0.37.2](https://github.com/patchloom/patchloom/compare/patchloom-v0.37.1...patchloom-v0.37.2) (2026-10-10)
+
+
+### Bug Fixes
+
+* **doc:** keep TOML integers above i64::MAX exact ([#2655](https://github.com/patchloom/patchloom/issues/2655)) ([398c723](https://github.com/patchloom/patchloom/commit/398c723d30c34e9c0b78e71fe961dd8c1e81154e)), closes [#2654](https://github.com/patchloom/patchloom/issues/2654)
+* **mcp:** warn when an inline plan drops an unknown key ([#2659](https://github.com/patchloom/patchloom/issues/2659)) ([3c3679a](https://github.com/patchloom/patchloom/commit/3c3679acac921163f15c064b0cd291b8d70fa9a2))
+* reject an unclosed ini section and fail the path-filter gate ([#2657](https://github.com/patchloom/patchloom/issues/2657)) ([2d1ad1a](https://github.com/patchloom/patchloom/commit/2d1ad1ac6436d71054bb79ea2f8090612bce3db4))
+
 ## [0.37.1](https://github.com/patchloom/patchloom/compare/patchloom-v0.37.0...patchloom-v0.37.1) (2026-10-08)
 
 
