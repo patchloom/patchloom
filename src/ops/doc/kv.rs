@@ -1,3 +1,4 @@
+// size-waiver: accepted single-domain bulk (policy #1408). Env, ini, and properties share one reader and one splice.
 //! Line-oriented `.env` / `.ini` / `.properties` parse and comment-preserving splice.
 
 use super::FileFormat;
