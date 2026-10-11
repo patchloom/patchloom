@@ -249,6 +249,32 @@ fn test_rename_check_directory_source_reports_change() {
     assert!(!dst.exists(), "check must not create dest");
 }
 
+#[test]
+fn test_rename_directory_preview_names_the_move() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("folder");
+    let dst = dir.path().join("moved-folder");
+    fs::create_dir(&src).unwrap();
+    fs::write(src.join("a.txt"), "hi\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("rename")
+        .arg("folder")
+        .arg("moved-folder")
+        .arg("--cwd")
+        .arg(dir.path())
+        .assert()
+        .code(2)
+        .stdout(predicate::str::contains(
+            "would rename folder -> moved-folder (directory)",
+        ));
+
+    assert!(src.is_dir(), "preview must not move the directory");
+    assert_eq!(fs::read_to_string(src.join("a.txt")).unwrap(), "hi\n");
+    assert!(!dst.exists(), "preview must not create dest");
+}
+
 /// Directory dest refuses rename in preview / check / apply (table-driven).
 #[test]
 fn test_rename_force_directory_destination_fails_in_all_modes() {
@@ -584,18 +610,23 @@ fn test_rename_binary_file_diff_mode() {
     let src = dir.path().join("binary.bin");
     fs::write(&src, b"\x00\x01\x02\xff").unwrap();
 
-    // Default mode (--diff) should not crash on binary files and should
-    // return exit 2 (CHANGES_DETECTED) since a rename would happen.
+    // Default preview has no text hunk for a binary file. It must still
+    // name the move and exit 2, matching `--check`, without writing.
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("rename")
-        .arg(&src)
-        .arg(dir.path().join("moved.bin"))
+        .arg("binary.bin")
+        .arg("moved.bin")
+        .arg("--cwd")
+        .arg(dir.path())
         .assert()
-        .code(2);
+        .code(2)
+        .stdout(predicate::str::contains(
+            "would rename binary.bin -> moved.bin (binary)",
+        ));
 
-    // Source should still exist (no --apply).
     assert!(src.exists());
+    assert!(!dir.path().join("moved.bin").exists());
 }
 
 #[test]
