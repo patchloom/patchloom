@@ -472,8 +472,14 @@ pub fn finalize_callback_write<T: Serialize>(
             let diff_text = diff_fn.map(|f| f(false));
             let output = make_output(WritePhase::Preview, diff_text, None);
             if !global.emit_json(&output)? {
-                if let Some(f) = diff_fn {
-                    print!("{}", f(global.should_color()));
+                // Binary and directory renames pass a diff callback that
+                // returns an empty string (no text hunk). Printing that
+                // empty string used to skip the check line, so default
+                // preview exited 2 with a blank terminal. `--check`
+                // already prints `msgs.check`.
+                let rendered = diff_fn.map(|f| f(global.should_color()));
+                if let Some(text) = rendered.as_deref().filter(|text| !text.is_empty()) {
+                    print!("{text}");
                 } else if has_changes && !global.quiet {
                     crate::json_emit::write_stdout_ignore_epipe(msgs.check.as_bytes(), true)?;
                 }
