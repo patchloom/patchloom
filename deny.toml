@@ -22,6 +22,9 @@ allow = [
 confidence-threshold = 0.8
 exceptions = [
     { allow = ["LGPL-2.1-or-later"], crate = "r-efi" },
+    # serde_json preserve_order depends on foldhash. Zlib stays off the
+    # global allow list so another Zlib crate still fails closed.
+    { allow = ["Zlib"], crate = "foldhash" },
 ]
 
 [bans]
