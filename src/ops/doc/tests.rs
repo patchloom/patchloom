@@ -330,6 +330,18 @@ mod basic {
     }
 
     #[test]
+    fn move_at_path_refuses_existing_destination() {
+        let original = json!({"server": {"http": 8080, "host": "localhost"}, "keep": true});
+        let mut root = original.clone();
+        let from = crate::selector::parse("server.http").unwrap();
+        let to = crate::selector::parse("server.host").unwrap();
+        let err = move_at_path(&mut root, &from, &to).unwrap_err();
+        assert!(crate::exit::is_already_exists(&err), "{err}");
+        assert!(err.to_string().contains("server.host"), "{err}");
+        assert_eq!(root, original);
+    }
+
+    #[test]
     fn move_at_path_to_nested_creates_intermediates() {
         let mut root = json!({"src": 42});
         let from = crate::selector::parse("src").unwrap();
