@@ -525,6 +525,9 @@ pub fn move_at_path(
         }
     };
 
+    // Index of an array splice, so source removal can follow the shift.
+    let mut spliced_at: Option<usize> = None;
+
     // Insert clone at destination path (creates intermediate objects).
     {
         let parent = navigate_mut(root, to_parent, true, "doc.move")?;
@@ -540,6 +543,7 @@ pub fn move_at_path(
                         })?;
                         if idx <= arr.len() {
                             arr.insert(idx, cloned);
+                            spliced_at = Some(idx);
                         } else {
                             return Err(anyhow::Error::new(crate::exit::InvalidInputError {
                                 msg: format!("target index {idx} out of bounds"),
@@ -557,14 +561,23 @@ pub fn move_at_path(
                     }
                 } else {
                     reject_blank_object_key(k, "doc.move")?;
-                    parent
-                        .as_object_mut()
-                        .ok_or_else(|| {
-                            anyhow::Error::new(crate::exit::TypeErrorError {
-                                msg: "target parent is not an object".into(),
-                            })
-                        })?
-                        .insert(k.clone(), cloned);
+                    let obj = parent.as_object_mut().ok_or_else(|| {
+                        anyhow::Error::new(crate::exit::TypeErrorError {
+                            msg: "target parent is not an object".into(),
+                        })
+                    })?;
+                    // A sibling key already holds a value. Replacing it would
+                    // drop that value with no signal. File rename refuses the
+                    // same way.
+                    if obj.contains_key(k.as_str()) {
+                        return Err(anyhow::Error::new(crate::exit::AlreadyExistsError {
+                            msg: format!(
+                                "destination already exists: {}",
+                                selector_display(to_segments)
+                            ),
+                        }));
+                    }
+                    obj.insert(k.clone(), cloned);
                 }
             }
             selector::Segment::Index(i) => {
@@ -575,6 +588,7 @@ pub fn move_at_path(
                 })?;
                 if *i <= arr.len() {
                     arr.insert(*i, cloned);
+                    spliced_at = Some(*i);
                 } else {
                     return Err(anyhow::Error::new(crate::exit::InvalidInputError {
                         msg: format!("target index {i} out of bounds"),
@@ -588,6 +602,15 @@ pub fn move_at_path(
     }
 
     // Destination insert succeeded; now remove from source.
+    // An insert into an ancestor array shifts later indexes. Follow that
+    // shift so removal does not edit the sibling that slid into the old slot.
+    let adjusted;
+    let (from_parent, from_last) = if let Some(at) = spliced_at {
+        adjusted = bump_source_after_insert(from_segments, to_parent, at);
+        split_last(&adjusted)
+    } else {
+        (from_parent, from_last)
+    };
     {
         let parent = navigate_mut(root, from_parent, false, "doc.move")?;
         match from_last {
@@ -621,6 +644,72 @@ pub fn move_at_path(
     }
 
     Ok(())
+}
+
+/// `Index(0)` and numeric `Key("0")` name the same array slot. Two object
+/// keys stay distinct (`"1"` is not `"01"`).
+fn same_array_slot(a: &selector::Segment, b: &selector::Segment) -> bool {
+    let either_index =
+        matches!(a, selector::Segment::Index(_)) || matches!(b, selector::Segment::Index(_));
+    if either_index {
+        return array_index_of(a).is_some() && array_index_of(a) == array_index_of(b);
+    }
+    a == b
+}
+
+fn bump_source_after_insert(
+    from: &[selector::Segment],
+    array_parent: &[selector::Segment],
+    inserted_at: usize,
+) -> Vec<selector::Segment> {
+    let mut out = from.to_vec();
+    if out.len() <= array_parent.len() {
+        return out;
+    }
+    let prefix_matches = out[..array_parent.len()]
+        .iter()
+        .zip(array_parent)
+        .all(|(a, b)| same_array_slot(a, b));
+    if !prefix_matches {
+        return out;
+    }
+    let Some(i) = array_index_of(&out[array_parent.len()]) else {
+        return out;
+    };
+    if i >= inserted_at {
+        match &mut out[array_parent.len()] {
+            selector::Segment::Index(n) => *n = i + 1,
+            selector::Segment::Key(k) => *k = (i + 1).to_string(),
+            _ => {}
+        }
+    }
+    out
+}
+
+fn selector_display(segments: &[selector::Segment]) -> String {
+    let mut out = String::new();
+    for seg in segments {
+        match seg {
+            selector::Segment::Key(k) => {
+                if !out.is_empty() {
+                    out.push('.');
+                }
+                out.push_str(k);
+            }
+            selector::Segment::Index(i) => {
+                out.push('[');
+                out.push_str(&i.to_string());
+                out.push(']');
+            }
+            selector::Segment::Wildcard => out.push_str("[*]"),
+            selector::Segment::Predicate { key, .. } => {
+                out.push('[');
+                out.push_str(key);
+                out.push_str("=...]");
+            }
+        }
+    }
+    out
 }
 
 pub(crate) fn reject_blank_object_key(k: &str, op: &str) -> anyhow::Result<()> {
@@ -1417,10 +1506,31 @@ mod tests {
     }
 
     #[test]
+    fn move_field_into_earlier_array_slot_keeps_the_sibling() {
+        let mut root = json!([{"name": "a"}, {"name": "b"}]);
+        move_at_path(&mut root, &segs("1.name"), &segs("[0]")).unwrap();
+        assert_eq!(root, json!(["b", {"name": "a"}, {}]));
+    }
+
+    #[test]
+    fn move_field_at_the_insert_index_follows_the_shift() {
+        let mut root = json!([{"name": "a"}, {"name": "b"}]);
+        move_at_path(&mut root, &segs("0.name"), &segs("[0]")).unwrap();
+        assert_eq!(root, json!(["a", {}, {"name": "b"}]));
+    }
+
+    #[test]
+    fn move_field_into_nested_array_accepts_mixed_index_notation() {
+        let mut root = json!([[{"name": "a"}, {"name": "b"}]]);
+        move_at_path(&mut root, &segs("0[1].name"), &segs("[0][0]")).unwrap();
+        assert_eq!(root, json!([["b", {"name": "a"}, {}]]));
+    }
+
+    #[test]
     fn move_at_path_numeric_object_key_is_not_array_index() {
         let mut root = json!({"map": {"1": "a", "0": "b", "x": "c"}});
-        move_at_path(&mut root, &segs("map.1"), &segs("map.0")).unwrap();
-        assert_eq!(root["map"], json!({"0": "a", "x": "c"}));
+        move_at_path(&mut root, &segs("map.1"), &segs("map.2")).unwrap();
+        assert_eq!(root["map"], json!({"0": "b", "2": "a", "x": "c"}));
     }
 
     // ── #1288: numeric dot-notation on arrays ──────────────────────
