@@ -2136,8 +2136,9 @@ mod tests {
         let result = validate_edit(yaml, "value", "new_value", Some("config.yml"));
         assert!(result.valid);
 
-        // Invalid replacement that breaks YAML structure.
-        let result = validate_edit(yaml, "key: value", ":\n  :\n  - :", Some("config.yml"));
+        // Unclosed flow sequence. Empty-key text is valid YAML 1.2, so it
+        // no longer proves this path runs a parser.
+        let result = validate_edit(yaml, "key: value", "key: [", Some("config.yml"));
         assert!(
             !result.valid,
             ".yml extension should trigger YAML validation"

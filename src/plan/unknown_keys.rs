@@ -151,7 +151,11 @@ pub(super) fn map_yaml_plan_parse_error(input: &str, err: serde_yaml_ng::Error) 
         .windows(3)
         .any(|w| w[0].is_ascii_alphabetic() && w[1] == b':' && w[2] == b'\\');
     let l = msg.to_ascii_lowercase();
-    let escape = l.contains("hexadecimal number") || l.contains("unknown escape");
+    // noyalib words an unfinished `\U` / `\u` as "8 hex digits in escape".
+    // A bare "escape sequence" would also match unrelated quoted escapes.
+    let escape = l.contains("hexadecimal number")
+        || l.contains("unknown escape")
+        || l.contains("hex digits in escape");
     if win_path && escape {
         return crate::exit::InvalidInputError {
             msg: format!(

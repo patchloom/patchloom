@@ -6,7 +6,6 @@
 
 use crate::selector;
 use anyhow::Context;
-use serde::Deserialize;
 use std::borrow::Cow;
 use std::cell::Cell;
 use std::collections::HashSet;
@@ -212,7 +211,15 @@ pub fn serialize_value(value: &serde_json::Value, format: &FileFormat) -> anyhow
             s.push('\n');
             Ok(s)
         }
-        FileFormat::Yaml => Ok(serde_yaml_ng::to_string(value)?),
+        FileFormat::Yaml => {
+            // noyalib omits the trailing newline serde_yaml_ng used to emit.
+            // Document writes keep a final newline (#2667).
+            let mut s = serde_yaml_ng::to_string(value)?;
+            if !s.ends_with('\n') {
+                s.push('\n');
+            }
+            Ok(s)
+        }
         FileFormat::Toml => {
             let s = toml_edit::ser::to_string_pretty(value).map_err(|e| {
                 anyhow::Error::new(crate::exit::InvalidInputError {
@@ -1215,11 +1222,11 @@ fn skip_to_next_line(s: &str) -> &str {
 
 /// Parse multi-document YAML into a JSON array, resolving merge keys per doc.
 fn parse_multi_document_yaml(content: &str) -> anyhow::Result<serde_json::Value> {
-    let mut docs = Vec::new();
-    for de in serde_yaml_ng::Deserializer::from_str(content) {
-        let mut val: serde_json::Value = serde_json::Value::deserialize(de)?;
-        resolve_yaml_merge_keys(&mut val);
-        docs.push(val);
+    // noyalib has no `Deserializer::from_str` iterator. `from_str_multi`
+    // is the same multi-document read (#2667).
+    let mut docs: Vec<serde_json::Value> = serde_yaml_ng::from_str_multi(content)?;
+    for val in &mut docs {
+        resolve_yaml_merge_keys(val);
     }
     // Precondition: is_multi_document_yaml() returned true, so content has
     // ---  separators and the YAML deserializer always yields at least one doc.
@@ -1613,10 +1620,10 @@ pub fn diff_values(
 
 /// Recursively resolve YAML merge keys (`<<`) in a parsed JSON value.
 ///
-/// When `serde_yaml_ng` deserializes `<<: *anchor`, it produces a literal
-/// `"<<"` key whose value is the referenced mapping.  This function walks
-/// the tree and flattens those entries into the parent object, matching
-/// YAML merge-key semantics (existing keys take precedence).
+/// When the YAML parser leaves a merge as a literal `"<<"` key, flatten
+/// that entry into the parent object. Existing keys take precedence.
+/// noyalib's serde_yaml-compatible mode often resolves `<<` itself;
+/// a leftover key still has to be flattened (#2667).
 ///
 /// Recursion stops at `MAX_MERGE_DEPTH` (128, same cap as `deep_merge`).
 fn resolve_yaml_merge_keys(value: &mut serde_json::Value) {

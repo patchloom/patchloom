@@ -2388,8 +2388,8 @@ deployment:
             .push(json!({"name": "B", "value": "2"}));
 
         let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
-        // Inserted override uses serde_yaml_ng quote style ('1' / '2').
-        // Anchor/merge and the original defaults.env quotes stay.
+        // Inserted override uses noyalib's double quotes for numeric
+        // strings. Anchor/merge and the original defaults.env quotes stay.
         assert_eq!(
             result,
             "\
@@ -2401,9 +2401,9 @@ deployment:
   <<: *defaults
   env:
     - name: A
-      value: '1'
+      value: \"1\"
     - name: B
-      value: '2'
+      value: \"2\"
 "
         );
         let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
@@ -2453,7 +2453,7 @@ deployment:
   <<: *defaults
   env:
     - name: A
-      value: '1'
+      value: \"1\"
 "
         );
         let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
