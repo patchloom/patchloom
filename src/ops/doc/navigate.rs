@@ -420,13 +420,17 @@ pub fn move_at_path(
         }));
     }
 
-    // Same path: no-op.
-    if from_segments == to_segments {
+    // Same path: no-op. On an array, `[0]`, `0`, and `00` are one slot.
+    // On an object, `"01"` is not `[1]`.
+    if paths_match(root, from_segments, to_segments) {
         return Ok(());
     }
 
     // Reject moving a path into its own descendant (would silently destroy data).
-    if to_segments.len() > from_segments.len() && to_segments.starts_with(from_segments) {
+    // Mixed notation (`items[0]`, `items.0`, `items.00`) is still the same prefix.
+    if to_segments.len() > from_segments.len()
+        && paths_match(root, &to_segments[..from_segments.len()], from_segments)
+    {
         return Err(anyhow::Error::new(crate::exit::InvalidInputError {
             msg: "cannot move a path into its own descendant: destination is under source".into(),
         }));
@@ -438,7 +442,8 @@ pub fn move_at_path(
     // Intra-array move: source and destination share the same parent array.
     // Use remove-then-insert so index arithmetic stays correct (#1196).
     // Numeric Key("1") is an index only when that parent is an array (#2472).
-    if from_parent == to_parent
+    // `rows[0]`, `rows.0`, and `rows.00` are that same parent.
+    if paths_match(root, from_parent, to_parent)
         && let (Some(fi), Some(ti)) = (array_index_of(from_last), array_index_of(to_last))
     {
         let parent = navigate_mut(root, from_parent, false, "doc.move")?;
@@ -644,6 +649,66 @@ pub fn move_at_path(
     }
 
     Ok(())
+}
+
+fn child_at<'a>(
+    current: &'a serde_json::Value,
+    seg: &selector::Segment,
+) -> Option<&'a serde_json::Value> {
+    match seg {
+        selector::Segment::Index(i) => current.get(*i),
+        selector::Segment::Key(k) => {
+            if current.is_array() {
+                let i = k.parse::<usize>().ok()?;
+                current.get(i)
+            } else {
+                current.get(k.as_str())
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Whether two segments name the same child of `current`.
+///
+/// An array accepts every numeric spelling (`0`, `00`, `[0]`). An object
+/// matches `Index(n)` only to the canonical key `n`, so `"01"` stays its
+/// own key.
+fn slots_same(current: &serde_json::Value, a: &selector::Segment, b: &selector::Segment) -> bool {
+    if current.is_array() {
+        return array_index_of(a).is_some() && array_index_of(a) == array_index_of(b);
+    }
+    match (a, b) {
+        (selector::Segment::Key(x), selector::Segment::Key(y)) => x == y,
+        (selector::Segment::Index(x), selector::Segment::Index(y)) => x == y,
+        (selector::Segment::Index(i), selector::Segment::Key(k))
+        | (selector::Segment::Key(k), selector::Segment::Index(i)) => k == &i.to_string(),
+        _ => false,
+    }
+}
+
+fn paths_match(
+    root: &serde_json::Value,
+    left: &[selector::Segment],
+    right: &[selector::Segment],
+) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    let mut current = root;
+    for (i, (a, b)) in left.iter().zip(right).enumerate() {
+        if !slots_same(current, a, b) {
+            return false;
+        }
+        if i + 1 == left.len() {
+            return true;
+        }
+        match child_at(current, a) {
+            Some(next) => current = next,
+            None => return false,
+        }
+    }
+    true
 }
 
 /// `Index(0)` and numeric `Key("0")` name the same array slot. Two object
@@ -1517,6 +1582,71 @@ mod tests {
         let mut root = json!([{"name": "a"}, {"name": "b"}]);
         move_at_path(&mut root, &segs("0.name"), &segs("[0]")).unwrap();
         assert_eq!(root, json!(["a", {}, {"name": "b"}]));
+    }
+
+    #[test]
+    fn move_into_descendant_rejects_mixed_bracket_and_dot() {
+        let original = json!({"items": [{"child": {"a": 1}}]});
+        let mut root = original.clone();
+        let err = move_at_path(
+            &mut root,
+            &segs("items[0].child"),
+            &segs("items.0.child.nested"),
+        )
+        .unwrap_err();
+        assert!(crate::exit::is_invalid_input(&err), "{err}");
+        assert!(err.to_string().contains("descendant"), "{err}");
+        assert_eq!(root, original);
+
+        let mut root = json!([{"a": 1}]);
+        let err = move_at_path(&mut root, &segs("[0]"), &segs("0.nested.new")).unwrap_err();
+        assert!(crate::exit::is_invalid_input(&err), "{err}");
+        assert_eq!(root, json!([{"a": 1}]));
+
+        let original = json!({"items": [{"child": {"a": 1}}]});
+        let mut root = original.clone();
+        let err = move_at_path(
+            &mut root,
+            &segs("items.0.child"),
+            &segs("items.00.child.nested"),
+        )
+        .unwrap_err();
+        assert!(crate::exit::is_invalid_input(&err), "{err}");
+        assert_eq!(root, original);
+    }
+
+    #[test]
+    fn move_inside_array_accepts_padded_dot_index() {
+        let mut root = json!({"rows": [["a", "b", "c"]]});
+        move_at_path(&mut root, &segs("rows.0[0]"), &segs("rows.00[2]")).unwrap();
+        assert_eq!(root, json!({"rows": [["b", "c", "a"]]}));
+    }
+
+    #[test]
+    fn move_does_not_treat_padded_object_key_as_bracket_index() {
+        let original = json!({"01": "b", "1": "a"});
+        let mut root = original.clone();
+        let err = move_at_path(&mut root, &segs("01"), &segs("[1]")).unwrap_err();
+        assert_eq!(root, original, "{err}");
+    }
+
+    #[test]
+    fn move_inside_array_accepts_mixed_parent_notation() {
+        let mut root = json!({"rows": [["a", "b", "c"]]});
+        move_at_path(&mut root, &segs("rows[0][0]"), &segs("rows.0[2]")).unwrap();
+        assert_eq!(root, json!({"rows": [["b", "c", "a"]]}));
+
+        let mut root = json!({"rows": [["a", "b"]]});
+        move_at_path(&mut root, &segs("rows[0][0]"), &segs("rows.0[1]")).unwrap();
+        assert_eq!(root, json!({"rows": [["b", "a"]]}));
+    }
+
+    #[test]
+    fn move_equivalent_bracket_and_dot_path_is_noop() {
+        let original = json!({"rows": [["a", "b"]]});
+        let mut root = original.clone();
+        move_at_path(&mut root, &segs("rows[0][0]"), &segs("rows.0[0]")).unwrap();
+        assert_eq!(root, original);
     }
 
     #[test]
