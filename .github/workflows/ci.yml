@@ -74,7 +74,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@351661ca32ac09a36dc5ee2d536e3128f2a3c8ed # v2.22.0
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
         with:
           egress-policy: audit
       - name: Checkout
@@ -103,7 +103,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@351661ca32ac09a36dc5ee2d536e3128f2a3c8ed # v2.22.0
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
         with:
           egress-policy: audit
       - name: Disable autocrlf
@@ -176,7 +176,7 @@ jobs:
     timeout-minutes: 50
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@351661ca32ac09a36dc5ee2d536e3128f2a3c8ed # v2.22.0
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
         with:
           egress-policy: audit
       - name: Disable autocrlf
@@ -209,7 +209,7 @@ jobs:
       - name: Setup WSL (Ubuntu distro only)
         id: setup_wsl
         continue-on-error: true
-        uses: Vampire/setup-wsl@d1da7f2c0322a5ee4f24975344f67fc0f5baf364 # v7.0.0
+        uses: Vampire/setup-wsl@614202866847d986a4f737ae6020b760283d3f5a # v7.1.1
         # Distro download + register only (no apt). Fail closed if hung.
         timeout-minutes: 12
         with:
@@ -223,7 +223,7 @@ jobs:
 
       - name: Setup WSL (retry after Store 403 / flake)
         if: steps.setup_wsl.outcome == 'failure'
-        uses: Vampire/setup-wsl@d1da7f2c0322a5ee4f24975344f67fc0f5baf364 # v7.0.0
+        uses: Vampire/setup-wsl@614202866847d986a4f737ae6020b760283d3f5a # v7.1.1
         timeout-minutes: 12
         with:
           distribution: Ubuntu-24.04
@@ -326,7 +326,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@351661ca32ac09a36dc5ee2d536e3128f2a3c8ed # v2.22.0
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
         with:
           egress-policy: audit
       - name: Checkout
@@ -355,7 +355,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@351661ca32ac09a36dc5ee2d536e3128f2a3c8ed # v2.22.0
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
         with:
           egress-policy: audit
       - name: Checkout
@@ -387,7 +387,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@351661ca32ac09a36dc5ee2d536e3128f2a3c8ed # v2.22.0
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
         with:
           egress-policy: audit
       - name: Checkout
@@ -422,7 +422,7 @@ jobs:
       code-quality: write
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@351661ca32ac09a36dc5ee2d536e3128f2a3c8ed # v2.22.0
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
         with:
           egress-policy: audit
       - name: Checkout
@@ -437,7 +437,7 @@ jobs:
           components: llvm-tools-preview
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2
+        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2
         with:
           tool: cargo-llvm-cov
 
@@ -445,7 +445,7 @@ jobs:
         run: cargo llvm-cov --all-features --lib --test integration --cobertura --output-path coverage.xml
 
       - name: Upload coverage artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: coverage-report
           path: coverage.xml
@@ -568,7 +568,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@351661ca32ac09a36dc5ee2d536e3128f2a3c8ed # v2.22.0
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
         with:
           egress-policy: audit
       - name: Checkout
@@ -580,7 +580,7 @@ jobs:
         uses: ./.github/actions/setup-rust
 
       - name: Install hyperfine
-        uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2
+        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2
         with:
           tool: hyperfine@1.20.0
 
@@ -662,7 +662,7 @@ jobs:
 
       - name: Upload benchmark results
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: benchmark-results
           path: ${{ runner.temp }}/bench-*.json
@@ -701,7 +701,7 @@ jobs:
           - fuzz_shell_token
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@351661ca32ac09a36dc5ee2d536e3128f2a3c8ed # v2.22.0
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
         with:
           egress-policy: audit
       - name: Checkout
@@ -720,7 +720,7 @@ jobs:
           cache-on-failure: "true"
 
       - name: Install cargo-fuzz
-        uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2
+        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2
         with:
           tool: cargo-fuzz
 
@@ -742,7 +742,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@351661ca32ac09a36dc5ee2d536e3128f2a3c8ed # v2.22.0
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
         with:
           egress-policy: audit
       - name: Checkout
@@ -770,7 +770,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@351661ca32ac09a36dc5ee2d536e3128f2a3c8ed # v2.22.0
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
         with:
           egress-policy: audit
       - name: Checkout
@@ -793,7 +793,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@351661ca32ac09a36dc5ee2d536e3128f2a3c8ed # v2.22.0
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
         with:
           egress-policy: audit
       - name: Checkout
@@ -802,7 +802,7 @@ jobs:
           persist-credentials: false
 
       - name: Install cargo-audit
-        uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2
+        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2
         with:
           tool: cargo-audit
 
@@ -822,7 +822,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@351661ca32ac09a36dc5ee2d536e3128f2a3c8ed # v2.22.0
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
         with:
           egress-policy: audit
       - name: Checkout
@@ -831,7 +831,7 @@ jobs:
           persist-credentials: false
 
       - name: Install cargo-deny
-        uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2
+        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2
         with:
           tool: cargo-deny
 
@@ -849,7 +849,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@351661ca32ac09a36dc5ee2d536e3128f2a3c8ed # v2.22.0
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
         with:
           egress-policy: audit
       - name: Checkout
@@ -867,7 +867,7 @@ jobs:
           sudo tar -xzf "/tmp/${archive}" -C /usr/local/bin actionlint
           actionlint -version
       - name: Install zizmor
-        uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26
+        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
         with:
           tool: zizmor@1.30.0
       - name: actionlint
