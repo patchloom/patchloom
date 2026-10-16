@@ -11,6 +11,20 @@ present (applied to the GitHub Release body by the host job). Versioned
 sections below are managed by release-please.
 
 
+## [0.37.3](https://github.com/patchloom/patchloom/compare/patchloom-v0.37.2...patchloom-v0.37.3) (2026-10-16)
+
+
+### Bug Fixes
+
+* bump tokio to 1.53.3 ([#2672](https://github.com/patchloom/patchloom/issues/2672)) ([45aa5cc](https://github.com/patchloom/patchloom/commit/45aa5ccce6cbe804fb73c61ff19a24d761d94ddc))
+* fail the ci gate when a job is abandoned ([#2678](https://github.com/patchloom/patchloom/issues/2678)) ([0c17a68](https://github.com/patchloom/patchloom/commit/0c17a68b2059bcc9fea6173704065afc0d31f855))
+* keep ini spacing and value comments ([#2673](https://github.com/patchloom/patchloom/issues/2673)) ([0110c9e](https://github.com/patchloom/patchloom/commit/0110c9e24c24eedcd3d430bd123d4c25d45b5c85))
+* keep upserted bullets in the parent list ([#2675](https://github.com/patchloom/patchloom/issues/2675)) ([edadb0f](https://github.com/patchloom/patchloom/commit/edadb0fa878483a4438aa914c49568ba6eed18d1))
+* parse YAML with noyalib instead of unsafe-libyaml ([#2668](https://github.com/patchloom/patchloom/issues/2668)) ([6ae6246](https://github.com/patchloom/patchloom/commit/6ae6246ac7102c28f8d2e7ffe5f960e04a4063ae))
+* refuse doc move onto an existing key ([#2676](https://github.com/patchloom/patchloom/issues/2676)) ([ca78c75](https://github.com/patchloom/patchloom/commit/ca78c751912cae7567a9f1205c49b8eb8e4f7bf5))
+* stop telling exact misses to use fuzzy opt-in ([#2674](https://github.com/patchloom/patchloom/issues/2674)) ([4c29e7e](https://github.com/patchloom/patchloom/commit/4c29e7e4473628df7ff03067135770fa058e34b0))
+* treat mixed array indexes as one doc.move path ([#2677](https://github.com/patchloom/patchloom/issues/2677)) ([9dd9ae2](https://github.com/patchloom/patchloom/commit/9dd9ae2501386b1931ed5619f742dc9c7287c814))
+
 ## [0.37.2](https://github.com/patchloom/patchloom/compare/patchloom-v0.37.1...patchloom-v0.37.2) (2026-10-11)
 
 
