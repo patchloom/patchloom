@@ -799,6 +799,33 @@ fn is_ordered_prefix_only(s: &str) -> bool {
     !digits.is_empty() && digits.iter().all(u8::is_ascii_digit)
 }
 
+/// Byte offset where a new bullet stops, before the first nested heading.
+fn direct_bullet_end(content: &str, heading: &str, body_start: usize, body_end: usize) -> usize {
+    let (body, bom) = section_body(content);
+    let headings = parse_headings(body);
+    let offsets = line_byte_starts(body);
+    let (level, query) = normalize_heading_query(heading);
+    let Some(parent) = matching_heading_indices(&headings, level, query)
+        .into_iter()
+        .next()
+    else {
+        return body_end;
+    };
+    let Some(child) = headings.iter().find(|h| h.line_start > parent.line_start) else {
+        return body_end;
+    };
+    if child.level <= parent.level {
+        return body_end;
+    }
+    // body_start is the first body line. An adjacent child heading
+    // (`# List\n## Other`) starts there, so include equality.
+    let start = offsets.get(child.line_start).copied().unwrap_or(body.len()) + bom;
+    if start >= body_start && start < body_end {
+        return start;
+    }
+    body_end
+}
+
 pub fn upsert_bullet_in(
     content: &str,
     heading: &str,
@@ -813,7 +840,10 @@ pub fn upsert_bullet_in(
         return Err(SectionError::EmptyConstruct);
     }
     let eol = crate::write::detect_eol(content);
-    let (body_start, body_end) = find_section(content, heading)?;
+    let (body_start, section_end) = find_section(content, heading)?;
+    // The section runs through nested headings. A bullet for this heading
+    // belongs in its own list, before the first child heading.
+    let body_end = direct_bullet_end(content, heading, body_start, section_end);
     let body = &content[body_start..body_end];
 
     let normalized =
