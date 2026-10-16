@@ -212,6 +212,16 @@ struct RefuseFileResult {
     reason: &'static str,
 }
 
+/// Human line for one refused path. The fuzzy flag applies only when a
+/// candidate was found and not written (`exact_old_absent`).
+fn format_refused_line(path: &str, reason: &str) -> String {
+    if reason == "exact_old_absent" {
+        format!("refused {path}: {reason} (use --allow-absent-old to apply fuzzy candidate)")
+    } else {
+        format!("refused {path}: {reason}")
+    }
+}
+
 /// Result of processing a single file.
 struct FileReplacement {
     path: String,
@@ -1258,10 +1268,7 @@ fn replace_output(
                     && let Some(ref refused) = refused
                 {
                     for r in refused {
-                        eprintln!(
-                            "refused {}: {} (use --allow-absent-old to apply fuzzy candidate)",
-                            r.path, r.reason
-                        );
+                        eprintln!("{}", format_refused_line(&r.path, r.reason));
                     }
                 }
                 Ok(())
@@ -1305,10 +1312,7 @@ fn replace_output(
                     && let Some(ref refused) = refused
                 {
                     for r in refused {
-                        eprintln!(
-                            "refused {}: {} (use --allow-absent-old to apply fuzzy candidate)",
-                            r.path, r.reason
-                        );
+                        eprintln!("{}", format_refused_line(&r.path, r.reason));
                     }
                 }
                 Ok(())
@@ -1338,10 +1342,7 @@ fn replace_output(
                     && let Some(ref refused) = refused
                 {
                     for r in refused {
-                        eprintln!(
-                            "refused {}: {} (use --allow-absent-old to apply fuzzy candidate)",
-                            r.path, r.reason
-                        );
+                        eprintln!("{}", format_refused_line(&r.path, r.reason));
                     }
                 }
                 Ok(())

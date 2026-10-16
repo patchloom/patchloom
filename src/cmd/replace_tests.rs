@@ -1825,3 +1825,19 @@ fn multi_fuzzy_total_miss_in_refused() {
         "got {refused:?}"
     );
 }
+
+#[test]
+fn refused_line_mentions_allow_absent_only_for_fuzzy_candidate() {
+    assert_eq!(
+        format_refused_line("c.txt", "no_matches"),
+        "refused c.txt: no_matches"
+    );
+    assert_eq!(
+        format_refused_line("bin.dat", "binary"),
+        "refused bin.dat: binary"
+    );
+    assert_eq!(
+        format_refused_line("a.txt", "exact_old_absent"),
+        "refused a.txt: exact_old_absent (use --allow-absent-old to apply fuzzy candidate)"
+    );
+}
