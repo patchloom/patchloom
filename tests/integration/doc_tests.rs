@@ -1857,9 +1857,9 @@ deployment:
   <<: *defaults
   env:
     - name: A
-      value: '1'
+      value: \"1\"
     - name: B
-      value: '2'
+      value: \"2\"
 "
     );
 }

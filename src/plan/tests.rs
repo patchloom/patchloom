@@ -1050,6 +1050,15 @@ fn parse_plan_yaml_strips_leading_utf8_bom() {
 }
 
 #[test]
+fn cargo_lock_does_not_pull_archived_unsafe_libyaml() {
+    let lock = include_str!("../../Cargo.lock");
+    assert!(
+        !lock.contains("name = \"unsafe-libyaml\""),
+        "unsafe-libyaml is archived (RUSTSEC-2024-0449); YAML uses noyalib (#2667)"
+    );
+}
+
+#[test]
 fn parse_plan_yaml_quoted_windows_users_path_is_invalid_input() {
     let yaml =
         "ops:\n  - op: replace\n    path: \"C:\\Users\\seb\\p.txt\"\n    old: old\n    new: new\n";
