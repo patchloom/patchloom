@@ -20,7 +20,7 @@ jobs:
       contents: read
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@351661ca32ac09a36dc5ee2d536e3128f2a3c8ed # v2.22.0
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
         with:
           egress-policy: audit
       # Use a GitHub App token instead of GITHUB_TOKEN so that the merge
@@ -30,7 +30,7 @@ jobs:
       # blocks auto-merge.
       - name: Generate App token
         id: app-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           client-id: ${{ vars.AUTO_APPROVE_CLIENT_ID }}
           private-key: ${{ secrets.AUTO_APPROVE_PRIVATE_KEY }}
