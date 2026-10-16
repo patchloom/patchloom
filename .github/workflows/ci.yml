@@ -884,6 +884,8 @@ jobs:
     # merge_group, or release-please light path). A failed or cancelled
     # paths-filter (`changes`) is not a skip: product jobs never start,
     # and this check must go red so a filter outage cannot hide `make check`.
+    # A job that dies while the runner is still starting can report
+    # `abandoned` instead of `failure` (#2677 msrv-macos). That is not a skip.
     needs: [changes, build-and-test, ci-windows, ci-wsl, ci-macos, msrv, msrv-macos, coverage, bench, fuzz, agent-dry-run, audit, deny, workflow-sanity]
     if: always()
     runs-on: ubuntu-latest
@@ -893,8 +895,8 @@ jobs:
         run: |
           results=("$CHANGES" "$BUILD" "$WINDOWS" "$WSL" "$MACOS" "$MSRV" "$MSRV_MACOS" "$COV" "$BENCH" "$FUZZ" "$AGENT" "$AUDIT" "$DENY" "$SANITY")
           for r in "${results[@]}"; do
-            if [ "$r" = "failure" ] || [ "$r" = "cancelled" ]; then
-              echo "Upstream job failed or was cancelled: $r"
+            if [ "$r" = "failure" ] || [ "$r" = "cancelled" ] || [ "$r" = "abandoned" ]; then
+              echo "Upstream job did not succeed: $r"
               exit 1
             fi
           done
