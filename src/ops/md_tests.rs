@@ -1475,6 +1475,52 @@ mod regression {
     }
 
     #[test]
+    fn upsert_bullet_stops_before_nested_heading() {
+        let content = "# List\n\n- alpha\n\n## Other\n\nkeep this\n";
+        let result = upsert_bullet_in(content, "# List", "- beta").unwrap();
+        assert_eq!(
+            result, "# List\n\n- alpha\n- beta\n\n## Other\n\nkeep this\n",
+            "{result:?}"
+        );
+    }
+
+    #[test]
+    fn upsert_bullet_stops_before_adjacent_nested_heading() {
+        let content = "# List\n## Other\n\nkeep this\n";
+        let result = upsert_bullet_in(content, "# List", "- beta").unwrap();
+        assert_eq!(
+            result, "# List\n- beta\n\n## Other\n\nkeep this\n",
+            "{result:?}"
+        );
+        let crlf = "# List\r\n## Other\r\n\r\nkeep this\r\n";
+        let result = upsert_bullet_in(crlf, "# List", "- beta").unwrap();
+        assert_eq!(
+            result, "# List\r\n- beta\r\n\r\n## Other\r\n\r\nkeep this\r\n",
+            "{result:?}"
+        );
+    }
+
+    #[test]
+    fn upsert_bullet_adjacent_child_does_not_dedup() {
+        let content = "# List\n## Other\n\n- beta\n";
+        let result = upsert_bullet_in(content, "List", "- beta").unwrap();
+        assert_eq!(
+            result, "# List\n- beta\n\n## Other\n\n- beta\n",
+            "{result:?}"
+        );
+    }
+
+    #[test]
+    fn upsert_bullet_does_not_dedup_against_a_nested_section() {
+        let content = "# List\n\n- alpha\n\n## Other\n\n- beta\n";
+        let result = upsert_bullet_in(content, "List", "- beta").unwrap();
+        assert_eq!(
+            result, "# List\n\n- alpha\n- beta\n\n## Other\n\n- beta\n",
+            "{result:?}"
+        );
+    }
+
+    #[test]
     fn upsert_bullet_preserves_blank_before_sub_heading() {
         // #973 variant: subsection headings (###) also need blank line preservation.
         let content = "### Bug Fixes\n\n- Fix one\n\n### Dependencies\n\nDep content.\n";
