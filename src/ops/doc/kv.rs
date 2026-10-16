@@ -255,7 +255,7 @@ fn parse_ini(content: &str) -> anyhow::Result<Value> {
         if key.is_empty() {
             continue;
         }
-        let val = Value::String(trimmed[eq + 1..].trim().to_string());
+        let val = Value::String(ini_value_and_comment(&trimmed[eq + 1..]).0);
         match &section {
             Some(sec) => {
                 let obj = root
@@ -429,7 +429,10 @@ fn ini_key_reads_back(key: &str, value: &str) -> bool {
     if breaks_kv_line(key) || breaks_kv_line(value) {
         return false;
     }
-    parse_ini_assignment(&format!("{key}={value}")).is_some_and(|(k, _)| k == key)
+    // Trailing or leading spaces trim on read. A space before `;` or `#`
+    // starts a comment, so that value would come back shorter.
+    parse_ini_assignment(&format!("{key}={value}"))
+        .is_some_and(|(k, v)| k == key && (v == value || v == value.trim()))
 }
 
 fn ensure_ini_key_reads_back(key: &str, value: &str) -> anyhow::Result<()> {
@@ -438,6 +441,10 @@ fn ensure_ini_key_reads_back(key: &str, value: &str) -> anyhow::Result<()> {
     }
     let why = if breaks_kv_line(value) && !breaks_kv_line(key) {
         "the written value would split onto another line"
+    } else if parse_ini_assignment(&format!("{key}={value}"))
+        .is_some_and(|(k, v)| k == key && v != value && v != value.trim())
+    {
+        "a space before `;` or `#` in the value starts a comment, so the value would read back shorter"
     } else {
         "the written line would be read back as a different key or an extra assignment"
     };
@@ -749,7 +756,54 @@ fn parse_ini_assignment(line: &str) -> Option<(String, String)> {
     if key.is_empty() {
         return None;
     }
-    Some((key.to_string(), trimmed[eq + 1..].trim().to_string()))
+    Some((key.to_string(), ini_value_and_comment(&trimmed[eq + 1..]).0))
+}
+
+/// Value, plus the inline comment suffix (including the spaces before it).
+///
+/// A `;` or `#` after whitespace is a comment, same as a section header.
+/// A marker glued to the value (`8080;primary`, `foo#bar`) stays in the value.
+fn ini_value_and_comment(raw: &str) -> (String, &str) {
+    let lead = raw.len() - raw.trim_start().len();
+    let body = &raw[lead..];
+    if body.is_empty() {
+        return (String::new(), "");
+    }
+    if (body.starts_with(';') || body.starts_with('#')) && lead > 0 {
+        return (String::new(), raw);
+    }
+    // A marker at index 0 stays in the value (`#ff00aa`). A later
+    // space-before-marker is still a comment (`#ff00aa ; brand`).
+    let (value, comment) = split_ini_inline_comment(body);
+    (value.to_string(), comment)
+}
+
+fn split_ini_inline_comment(raw: &str) -> (&str, &str) {
+    let mut comment_at = None;
+    for (idx, c) in raw.char_indices() {
+        if (c == ';' || c == '#') && idx > 0 {
+            let prev = raw[..idx].chars().next_back();
+            if prev.is_some_and(|p| p.is_whitespace()) {
+                comment_at = Some(idx);
+                break;
+            }
+        }
+    }
+    let Some(at) = comment_at else {
+        return (raw.trim_end(), "");
+    };
+    let mut start = at;
+    while start > 0 {
+        let Some(prev) = raw[..start].chars().next_back() else {
+            break;
+        };
+        if prev.is_whitespace() {
+            start -= prev.len_utf8();
+        } else {
+            break;
+        }
+    }
+    (&raw[..start], &raw[start..])
 }
 
 fn ini_line_section(lines: &[String], idx: usize) -> Option<String> {
@@ -828,8 +882,28 @@ fn replace_ini_value(line: &str, new_s: &str) -> String {
     let trimmed_start = line.len() - line.trim_start().len();
     let prefix = &line[..trimmed_start];
     let rest = line.trim_start();
-    let eq = rest.find('=').unwrap_or(rest.len());
-    format!("{prefix}{}={}", rest[..eq].trim_end(), new_s)
+    let Some(eq) = rest.find('=') else {
+        return line.to_string();
+    };
+    let key_part = &rest[..eq];
+    let after = &rest[eq + 1..];
+    let (_, suffix) = ini_value_and_comment(after);
+    let lead = after.len() - after.trim_start().len();
+    let body = &after[lead..];
+    // Spaces before a comment marker belong to the suffix, not the value gap.
+    let raw_gap = if !suffix.is_empty() && (body.starts_with(';') || body.starts_with('#')) {
+        ""
+    } else {
+        &after[..lead]
+    };
+    // `color = #ff00aa` would read back as an empty comment. Drop the gap
+    // so a value that starts with `#` or `;` stays glued to `=`.
+    let gap = if !raw_gap.is_empty() && (new_s.starts_with('#') || new_s.starts_with(';')) {
+        ""
+    } else {
+        raw_gap
+    };
+    format!("{prefix}{key_part}={gap}{new_s}{suffix}")
 }
 
 #[cfg(test)]
@@ -1057,6 +1131,75 @@ mod tests {
         assert!(out.contains("# c"));
         assert!(out.contains("[server]"));
         assert!(out.contains("port=443"));
+    }
+
+    #[test]
+    fn ini_value_inline_comment_is_not_part_of_the_value() {
+        let got = parse_kv(
+            "[s]\nport = 8080 ; primary\nhost=localhost # here\nglued=8080;primary\nhash=foo#bar\nempty= ; blank\n",
+            FileFormat::Ini,
+        )
+        .unwrap();
+        assert_eq!(got["s"]["port"], json!("8080"));
+        assert_eq!(got["s"]["host"], json!("localhost"));
+        assert_eq!(got["s"]["glued"], json!("8080;primary"));
+        assert_eq!(got["s"]["hash"], json!("foo#bar"));
+        assert_eq!(got["s"]["empty"], json!(""));
+        let hex = parse_kv("[s]\ncolor=#ff00aa ; brand\n", FileFormat::Ini).unwrap();
+        assert_eq!(hex["s"]["color"], json!("#ff00aa"));
+    }
+
+    #[test]
+    fn ini_set_keeps_spacing_and_inline_comment() {
+        let orig = "; service\n[server]\nport = 8080 ; primary\nhost = localhost\n";
+        let old = parse_kv(orig, FileFormat::Ini).unwrap();
+        assert_eq!(old["server"]["port"], json!("8080"));
+        let mut new = old.clone();
+        new["server"]["port"] = json!("9090");
+        let out = serialize_kv_preserving(orig, &old, &new, FileFormat::Ini).unwrap();
+        assert!(out.contains("; service\n"), "{out:?}");
+        assert!(out.contains("port = 9090 ; primary\n"), "{out:?}");
+        assert!(out.contains("host = localhost\n"), "{out:?}");
+        let got = parse_kv(&out, FileFormat::Ini).unwrap();
+        assert_eq!(got["server"]["port"], json!("9090"));
+        assert_eq!(got["server"]["host"], json!("localhost"));
+    }
+
+    #[test]
+    fn ini_set_hash_value_keeps_read_back_on_a_spaced_line() {
+        let orig = "[s]\ncolor = red ; name\n";
+        let old = parse_kv(orig, FileFormat::Ini).unwrap();
+        assert_eq!(old["s"]["color"], json!("red"));
+        let mut new = old.clone();
+        new["s"]["color"] = json!("#ff00aa");
+        let out = serialize_kv_preserving(orig, &old, &new, FileFormat::Ini).unwrap();
+        assert!(out.contains("color =#ff00aa ; name\n"), "{out:?}");
+        let got = parse_kv(&out, FileFormat::Ini).unwrap();
+        assert_eq!(got["s"]["color"], json!("#ff00aa"));
+    }
+
+    #[test]
+    fn ini_set_keeps_comment_after_a_leading_hash_value() {
+        let orig = "[s]\ncolor=#ff00aa ; brand\n";
+        let old = parse_kv(orig, FileFormat::Ini).unwrap();
+        assert_eq!(old["s"]["color"], json!("#ff00aa"));
+        let mut new = old.clone();
+        new["s"]["color"] = json!("red");
+        let out = serialize_kv_preserving(orig, &old, &new, FileFormat::Ini).unwrap();
+        assert!(out.contains("color=red ; brand\n"), "{out:?}");
+        let got = parse_kv(&out, FileFormat::Ini).unwrap();
+        assert_eq!(got["s"]["color"], json!("red"));
+    }
+
+    #[test]
+    fn ini_value_with_spaced_comment_marker_is_invalid_input() {
+        let orig = "[db]\nport=1\n";
+        let old = parse_kv(orig, FileFormat::Ini).unwrap();
+        let mut new = old.clone();
+        new["db"]["port"] = json!("8080 ; primary");
+        let err = serialize_kv_preserving(orig, &old, &new, FileFormat::Ini).unwrap_err();
+        assert!(crate::exit::is_invalid_input(&err), "{err}");
+        assert!(err.to_string().contains("comment"), "{err}");
     }
 
     #[test]
