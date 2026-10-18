@@ -435,7 +435,8 @@ pub(crate) fn get_doc_root<'a>(
     let file_path = cwd.join(path);
 
     if !doc_cache.contains_key(&file_path) {
-        let content = read_file_content(pending, existed_before, &file_path)?;
+        let content =
+            read_file_content(pending, existed_before, &file_path).map_err(path_err(path))?;
         let format = detect_format(path).map_err(path_err(path))?;
         let root = parse_doc(content, &format).map_err(path_err(path))?;
         let old_value = root.clone();
@@ -685,7 +686,8 @@ pub(crate) fn execute_doc_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
     let root = match get_doc_root(tx.pending, tx.existed_before, tx.doc_cache, path, tx.cwd) {
         Ok(root) => root,
         Err(e) if if_exists_set && crate::exit::is_io_not_found(&e) => return Ok(()),
-        Err(e) => return Err(path_err(path)(e)),
+        // get_doc_root already prefixes the path. A second path_err repeats it.
+        Err(e) => return Err(e),
     };
     if if_exists_set {
         let selector = match op {

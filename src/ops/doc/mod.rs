@@ -1846,6 +1846,14 @@ pub fn apply_doc_mutation(
         }
         DocMutation::Ensure { selector, value } => {
             let sel = selector::parse_anyhow(&selector)?;
+            if sel.iter().any(|seg| {
+                matches!(
+                    seg,
+                    selector::Segment::Wildcard | selector::Segment::Predicate { .. }
+                )
+            }) {
+                return Err(navigate::write_nav_predicate_error("doc.ensure"));
+            }
             if !selector::eval_result(root, &sel)?.is_empty() {
                 Ok(MutationResult::AlreadyExists)
             } else {

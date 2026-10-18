@@ -132,10 +132,21 @@ fn file_write(
             // Regular files, symlinks (unlink only), FIFO/socket/device ok;
             // real directories refuse (#2087).
             crate::ops::file::ensure_unlinkable_not_directory(path, display.as_ref())?;
-            // Delete may remove non-UTF-8 / special nodes; soft snapshot only
-            // for regular text files.
+            // UTF-8 keeps a text snapshot. Binary and invalid UTF-8 stay
+            // empty so path-only unlink still works. Permission and other
+            // read errors return here. An empty snapshot that fails in
+            // save_before_delete drops the typed kind. Special nodes stay
+            // empty and are not opened.
             let original = if crate::ops::file::is_regular_file_for_backup(path) {
-                crate::files::load_text_strict(path, &path_str).unwrap_or_default()
+                match crate::files::load_text_strict(path, &path_str) {
+                    Ok(text) => text,
+                    Err(e)
+                        if crate::exit::is_binary(&e) || crate::exit::is_invalid_encoding(&e) =>
+                    {
+                        String::new()
+                    }
+                    Err(e) => return Err(e),
+                }
             } else {
                 String::new()
             };

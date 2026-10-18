@@ -158,13 +158,41 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
                         )
                         .into());
                     }
-                    tx.existed_before.insert(file_path.clone());
-                    // Soft text load for rollback snapshot: binary / invalid
-                    // UTF-8 / unreadable / special node → empty pair
-                    // (#1163 / #1894 SoftSkip / #2087).
-                    if crate::ops::file::is_regular_file_for_backup(&file_path)
-                        && let Some(content) = crate::files::read_text_file(&file_path)
+                    // UTF-8 keeps a text snapshot. Binary and invalid UTF-8 keep
+                    // an empty pair only after open succeeds, so a regular file
+                    // that cannot be opened is not staged (commit backup would
+                    // drop the OS error). Special nodes stay empty and are not
+                    // opened (#1163 / #1894 / #2087).
+                    let text_snapshot = if crate::ops::file::is_regular_file_for_backup(&file_path)
                     {
+                        if let Some(content) = crate::files::read_text_file(&file_path) {
+                            Some(content)
+                        } else {
+                            match std::fs::File::open(&file_path) {
+                                Ok(file) => {
+                                    drop(file);
+                                    None
+                                }
+                                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                                    return Err(std::io::Error::new(
+                                        std::io::ErrorKind::NotFound,
+                                        format!("file not found: {path}"),
+                                    )
+                                    .into());
+                                }
+                                Err(e) => {
+                                    return Err(crate::exit::InvalidInputError {
+                                        msg: format!("failed to read {path}: {e}"),
+                                    }
+                                    .into());
+                                }
+                            }
+                        }
+                    } else {
+                        None
+                    };
+                    tx.existed_before.insert(file_path.clone());
+                    if let Some(content) = text_snapshot {
                         tx.pending
                             .insert(file_path.clone(), (content.clone(), content));
                     } else {

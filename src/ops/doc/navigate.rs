@@ -258,7 +258,7 @@ fn no_match_missing_key(parent: &serde_json::Value, key: &str, msg: String) -> a
 }
 
 /// Fail-closed predicate/wildcard error with optional machine-stable `suggested_op` (#2133).
-fn write_nav_predicate_error(op_context: &str) -> anyhow::Error {
+pub(super) fn write_nav_predicate_error(op_context: &str) -> anyhow::Error {
     let msg = write_nav_predicate_msg(op_context);
     match write_nav_suggested_op(op_context) {
         Some(suggested_op) => {

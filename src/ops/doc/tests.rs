@@ -1171,6 +1171,61 @@ mod edge_cases {
     }
 
     #[test]
+    fn mutation_ensure_wildcard_partial_is_invalid() {
+        let mut root = json!({"items":[{"name":"a","note":"x"},{"name":"b"}]});
+        let err = apply_doc_mutation(
+            &mut root,
+            DocMutation::Ensure {
+                selector: "items[*].note".into(),
+                value: json!("z"),
+            },
+        )
+        .expect_err("partial wildcard ensure");
+        assert!(crate::exit::is_invalid_input(&err), "{err}");
+        assert_eq!(
+            crate::exit::suggested_op_from_error(&err),
+            Some("doc.update")
+        );
+        assert_eq!(
+            root,
+            json!({"items":[{"name":"a","note":"x"},{"name":"b"}]})
+        );
+    }
+
+    #[test]
+    fn mutation_ensure_wildcard_none_is_invalid() {
+        let mut root = json!({"items":[{"name":"a"},{"name":"b"}]});
+        let err = apply_doc_mutation(
+            &mut root,
+            DocMutation::Ensure {
+                selector: "items[*].note".into(),
+                value: json!("z"),
+            },
+        )
+        .expect_err("wildcard ensure with no notes");
+        assert!(crate::exit::is_invalid_input(&err), "{err}");
+        assert_eq!(root, json!({"items":[{"name":"a"},{"name":"b"}]}));
+    }
+
+    #[test]
+    fn mutation_ensure_predicate_existing_is_invalid() {
+        let mut root = json!({"items":[{"name":"a","note":"x"},{"name":"b"}]});
+        let err = apply_doc_mutation(
+            &mut root,
+            DocMutation::Ensure {
+                selector: "items[name=a].note".into(),
+                value: json!("z"),
+            },
+        )
+        .expect_err("predicate ensure of existing note");
+        assert!(crate::exit::is_invalid_input(&err), "{err}");
+        assert_eq!(
+            root,
+            json!({"items":[{"name":"a","note":"x"},{"name":"b"}]})
+        );
+    }
+
+    #[test]
     fn mutation_delete_where_no_match() {
         let mut root = json!({"items": [{"k": "a"}]});
         let result = apply_doc_mutation(
