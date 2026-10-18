@@ -116,6 +116,11 @@ fn try_toml_remove_subsequence(
     old_arr: &[serde_json::Value],
     new_arr: &[serde_json::Value],
 ) -> bool {
+    // An empty array of tables serializes as no key. Fall through so
+    // wholesale replacement writes `key = []`, which round-trips.
+    if new_arr.is_empty() && item.as_array_of_tables().is_some() {
+        return false;
+    }
     let new_len = new_arr.len();
     let mut remove_indices = Vec::new();
     let mut ni = 0;
@@ -516,6 +521,36 @@ ver = 2 # keep
         assert!(result.contains("name = \"vue\""), "{result}");
         assert!(result.contains("# footer"), "{result}");
         assert!(!result.contains("react"), "{result}");
+    }
+
+    #[test]
+    fn apply_value_diff_array_of_tables_shrink_to_empty_keeps_key() {
+        let src = "\
+title = \"x\"
+[[items]]
+name = \"a\"
+";
+        let mut doc = parse_toml(src);
+        let old = json(r#"{"title":"x","items":[{"name":"a"}]}"#);
+        let new = json(r#"{"title":"x","items":[]}"#);
+        apply_value_diff(doc.as_item_mut(), &old, &new);
+        let result = doc.to_string();
+        let reparsed: serde_json::Value = toml_edit::de::from_str(&result).unwrap();
+        assert_eq!(reparsed["items"], json("[]"), "{result}");
+        assert_eq!(reparsed["title"], json(r#""x""#), "{result}");
+    }
+
+    #[test]
+    fn apply_value_diff_plain_array_shrink_to_empty_keeps_key_and_comment() {
+        let src = "nums = [1, 2] # tail\n";
+        let mut doc = parse_toml(src);
+        let old = json(r#"{"nums":[1,2]}"#);
+        let new = json(r#"{"nums":[]}"#);
+        apply_value_diff(doc.as_item_mut(), &old, &new);
+        let result = doc.to_string();
+        let reparsed: serde_json::Value = toml_edit::de::from_str(&result).unwrap();
+        assert_eq!(reparsed["nums"], json("[]"), "{result}");
+        assert!(result.contains("# tail"), "{result}");
     }
 
     #[test]
