@@ -95,12 +95,59 @@ pub(crate) fn apply_value_diff(
             }
         }
 
-        // Type changed, different-length arrays, or scalar change:
-        // wholesale replacement.
+        (serde_json::Value::Array(old_arr), serde_json::Value::Array(new_arr))
+            if old_arr.len() != new_arr.len() =>
+        {
+            if !try_toml_remove_subsequence(item, old_arr, new_arr) {
+                *item = json_to_toml_item(new);
+            }
+        }
+
+        // Type change or scalar change: wholesale replacement.
+        // A different-length array is handled above.
         _ => {
             *item = json_to_toml_item(new);
         }
     }
+}
+
+fn try_toml_remove_subsequence(
+    item: &mut toml_edit::Item,
+    old_arr: &[serde_json::Value],
+    new_arr: &[serde_json::Value],
+) -> bool {
+    let new_len = new_arr.len();
+    let mut remove_indices = Vec::new();
+    let mut ni = 0;
+    for (oi, old_item) in old_arr.iter().enumerate() {
+        if ni < new_len && old_item == &new_arr[ni] {
+            ni += 1;
+        } else {
+            remove_indices.push(oi);
+        }
+    }
+    if ni != new_len {
+        return false;
+    }
+    if let Some(arr) = item.as_array_mut() {
+        if arr.len() != old_arr.len() {
+            return false;
+        }
+        for &idx in remove_indices.iter().rev() {
+            arr.remove(idx);
+        }
+        return true;
+    }
+    if let Some(aot) = item.as_array_of_tables_mut() {
+        if aot.len() != old_arr.len() {
+            return false;
+        }
+        for &idx in remove_indices.iter().rev() {
+            aot.remove(idx);
+        }
+        return true;
+    }
+    false
 }
 
 /// Marker wrapped around a JSON integer that does not fit in TOML's i64.
@@ -441,6 +488,67 @@ mod tests {
             result.contains("1, 2, 3"),
             "extended array [1, 2, 3] should appear: {result}"
         );
+    }
+
+    #[test]
+    fn apply_value_diff_array_of_tables_shrink_keeps_survivor_comments() {
+        let src = "\
+# header
+[[items]]
+# first
+name = \"react\"
+ver = 1
+
+[[items]]
+# second
+name = \"vue\"
+ver = 2 # keep
+
+# footer
+";
+        let mut doc = parse_toml(src);
+        let old = json(r#"{"items":[{"name":"react","ver":1},{"name":"vue","ver":2}]}"#);
+        let new = json(r#"{"items":[{"name":"vue","ver":2}]}"#);
+        apply_value_diff(doc.as_item_mut(), &old, &new);
+        let result = doc.to_string();
+        assert!(result.contains("# second"), "{result}");
+        assert!(result.contains("ver = 2 # keep"), "{result}");
+        assert!(result.contains("name = \"vue\""), "{result}");
+        assert!(result.contains("# footer"), "{result}");
+        assert!(!result.contains("react"), "{result}");
+    }
+
+    #[test]
+    fn apply_value_diff_array_shrink_not_subsequence_replaces() {
+        let src = "\
+[[items]]
+name = \"a\"
+n = 1 # keep
+
+[[items]]
+name = \"b\"
+n = 2
+";
+        let mut doc = parse_toml(src);
+        let old = json(r#"{"items":[{"name":"a","n":1},{"name":"b","n":2}]}"#);
+        let new = json(r#"{"items":[{"name":"a","n":9}]}"#);
+        apply_value_diff(doc.as_item_mut(), &old, &new);
+        let result = doc.to_string();
+        assert!(result.contains("n = 9"), "{result}");
+        assert!(!result.contains("# keep"), "{result}");
+    }
+
+    #[test]
+    fn apply_value_diff_plain_array_shrink_keeps_tail_comment() {
+        let src = "nums = [1, 2, 3] # tail\n";
+        let mut doc = parse_toml(src);
+        let old = json(r#"{"nums":[1,2,3]}"#);
+        let new = json(r#"{"nums":[1,3]}"#);
+        apply_value_diff(doc.as_item_mut(), &old, &new);
+        let result = doc.to_string();
+        let reparsed: serde_json::Value = toml_edit::de::from_str(&result).unwrap();
+        assert_eq!(reparsed["nums"], json("[1,3]"));
+        assert!(result.contains("# tail"), "{result}");
     }
 
     #[test]
