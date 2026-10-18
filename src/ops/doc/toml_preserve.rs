@@ -43,12 +43,58 @@ pub(crate) fn apply_value_diff(
                 .filter(|k| !new_map.contains_key(k.as_str()))
                 .cloned()
                 .collect();
-            for k in &removed {
-                table.remove(k);
+            let added: Vec<String> = new_map
+                .keys()
+                .filter(|k| !old_map.contains_key(k.as_str()))
+                .cloned()
+                .collect();
+            // One removed key and one added key with the same value is a
+            // rename (`doc move`). Removing then inserting drops the old
+            // key's comments.
+            let renamed = if removed.len() == 1 && added.len() == 1 {
+                let old_key = removed[0].clone();
+                let new_key = added[0].clone();
+                if old_map.get(&old_key) == new_map.get(&new_key) {
+                    Some((old_key, new_key))
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            if let Some((old_key, new_key)) = &renamed {
+                let leaf = table.key_mut(old_key).map(|key| key.leaf_decor().clone());
+                let value_decor = table
+                    .get(old_key)
+                    .and_then(|item| item.as_value())
+                    .map(|value| value.decor().clone());
+                if let Some(existing) = table.remove(old_key) {
+                    table.insert(new_key, existing);
+                    if let Some(leaf) = leaf
+                        && let Some(mut key) = table.key_mut(new_key)
+                    {
+                        *key.leaf_decor_mut() = leaf;
+                    }
+                    if let Some(value_decor) = value_decor
+                        && let Some(item) = table.get_mut(new_key)
+                        && let Some(value) = item.as_value_mut()
+                    {
+                        *value.decor_mut() = value_decor;
+                    }
+                }
+            }
+            for key in &removed {
+                if renamed.as_ref().is_some_and(|(old_key, _)| old_key == key) {
+                    continue;
+                }
+                table.remove(key);
             }
 
             // Add new keys or recurse into changed values.
             for (key, new_val) in new_map {
+                if renamed.as_ref().is_some_and(|(_, new_key)| new_key == key) {
+                    continue;
+                }
                 if let Some(old_val) = old_map.get(key) {
                     if old_val != new_val
                         && let Some(child) = table.get_mut(key)
@@ -490,6 +536,23 @@ mod tests {
         let reparsed: serde_json::Value = toml_edit::de::from_str(&result).unwrap();
         assert_eq!(reparsed["n"], json("9"), "{result}");
         assert!(result.contains("# keep"), "{result}");
+    }
+
+    #[test]
+    fn apply_value_diff_key_rename_keeps_comments() {
+        let src = "# header\nn = 1 # keep\nm = 2 # stay\n";
+        let mut doc = parse_toml(src);
+        let old = json(r#"{"n":1,"m":2}"#);
+        let new = json(r#"{"p":1,"m":2}"#);
+        apply_value_diff(doc.as_item_mut(), &old, &new);
+        let result = doc.to_string();
+        let reparsed: serde_json::Value = toml_edit::de::from_str(&result).unwrap();
+        assert_eq!(reparsed["p"], json("1"), "{result}");
+        assert_eq!(reparsed["m"], json("2"), "{result}");
+        assert!(reparsed.get("n").is_none(), "{result}");
+        assert!(result.contains("# header"), "{result}");
+        assert!(result.contains("# keep"), "{result}");
+        assert!(result.contains("# stay"), "{result}");
     }
 
     #[test]
