@@ -98,7 +98,11 @@ pub(crate) fn apply_value_diff(
         (serde_json::Value::Array(old_arr), serde_json::Value::Array(new_arr))
             if old_arr.len() != new_arr.len() =>
         {
-            if !try_toml_remove_subsequence(item, old_arr, new_arr) {
+            // A pure suffix or prefix keeps decorations on the existing
+            // array. Wholesale replacement drops a tail comment.
+            if !try_toml_extend_array(item, old_arr, new_arr)
+                && !try_toml_remove_subsequence(item, old_arr, new_arr)
+            {
                 *item = json_to_toml_item(new);
             }
         }
@@ -109,6 +113,74 @@ pub(crate) fn apply_value_diff(
             *item = json_to_toml_item(new);
         }
     }
+}
+
+/// Grow a TOML array when `new_arr` is `old_arr` plus a suffix (append)
+/// or a prefix (prepend). Other length changes return false.
+fn try_toml_extend_array(
+    item: &mut toml_edit::Item,
+    old_arr: &[serde_json::Value],
+    new_arr: &[serde_json::Value],
+) -> bool {
+    if new_arr.len() <= old_arr.len() {
+        return false;
+    }
+    let extra = new_arr.len() - old_arr.len();
+    let append = new_arr.get(..old_arr.len()) == Some(old_arr);
+    let prepend = !append && new_arr.get(extra..) == Some(old_arr);
+    if !append && !prepend {
+        return false;
+    }
+    let extras = if append {
+        &new_arr[old_arr.len()..]
+    } else {
+        &new_arr[..extra]
+    };
+    if let Some(arr) = item.as_array_mut() {
+        if arr.len() != old_arr.len() {
+            return false;
+        }
+        if append {
+            for value in extras {
+                arr.push(json_to_toml_value(value));
+            }
+        } else {
+            for (i, value) in extras.iter().enumerate() {
+                arr.insert(i, json_to_toml_value(value));
+            }
+        }
+        return true;
+    }
+    if item.as_array_of_tables().is_some() {
+        if item
+            .as_array_of_tables()
+            .is_none_or(|aot| aot.len() != old_arr.len())
+            || extras.iter().any(|value| !value.is_object())
+        {
+            return false;
+        }
+        let mut tables = Vec::with_capacity(extras.len());
+        for value in extras {
+            match json_to_toml_item(value) {
+                toml_edit::Item::Table(table) => tables.push(table),
+                _ => return false,
+            }
+        }
+        let Some(aot) = item.as_array_of_tables_mut() else {
+            return false;
+        };
+        if append {
+            for table in tables {
+                aot.push(table);
+            }
+        } else {
+            for (i, table) in tables.into_iter().enumerate() {
+                aot.insert(i, table);
+            }
+        }
+        return true;
+    }
+    false
 }
 
 fn try_toml_remove_subsequence(
@@ -584,6 +656,70 @@ n = 2
         let reparsed: serde_json::Value = toml_edit::de::from_str(&result).unwrap();
         assert_eq!(reparsed["nums"], json("[1,3]"));
         assert!(result.contains("# tail"), "{result}");
+    }
+
+    #[test]
+    fn apply_value_diff_plain_array_grow_keeps_tail_comment() {
+        let src = "nums = [1] # tail\n";
+        let mut doc = parse_toml(src);
+        let old = json(r#"{"nums":[1]}"#);
+        let new = json(r#"{"nums":[1,2]}"#);
+        apply_value_diff(doc.as_item_mut(), &old, &new);
+        let result = doc.to_string();
+        let reparsed: serde_json::Value = toml_edit::de::from_str(&result).unwrap();
+        assert_eq!(reparsed["nums"], json("[1,2]"), "{result}");
+        assert!(result.contains("# tail"), "{result}");
+    }
+
+    #[test]
+    fn apply_value_diff_plain_array_prepend_keeps_tail_comment() {
+        let src = "nums = [1] # tail\n";
+        let mut doc = parse_toml(src);
+        let old = json(r#"{"nums":[1]}"#);
+        let new = json(r#"{"nums":[0,1]}"#);
+        apply_value_diff(doc.as_item_mut(), &old, &new);
+        let result = doc.to_string();
+        let reparsed: serde_json::Value = toml_edit::de::from_str(&result).unwrap();
+        assert_eq!(reparsed["nums"], json("[0,1]"), "{result}");
+        assert!(result.contains("# tail"), "{result}");
+    }
+
+    #[test]
+    fn apply_value_diff_array_of_tables_append_keeps_existing_comments() {
+        let src = "\
+# header
+[[items]]
+name = \"a\" # keep
+";
+        let mut doc = parse_toml(src);
+        let old = json(r#"{"items":[{"name":"a"}]}"#);
+        let new = json(r#"{"items":[{"name":"a"},{"name":"b"}]}"#);
+        apply_value_diff(doc.as_item_mut(), &old, &new);
+        let result = doc.to_string();
+        let reparsed: serde_json::Value = toml_edit::de::from_str(&result).unwrap();
+        assert_eq!(reparsed["items"][0]["name"], "a", "{result}");
+        assert_eq!(reparsed["items"][1]["name"], "b", "{result}");
+        assert!(result.contains("# header"), "{result}");
+        assert!(result.contains("# keep"), "{result}");
+    }
+
+    #[test]
+    fn apply_value_diff_array_of_tables_prepend_keeps_existing_comments() {
+        let src = "\
+# header
+[[items]]
+name = \"a\" # keep
+";
+        let mut doc = parse_toml(src);
+        let old = json(r#"{"items":[{"name":"a"}]}"#);
+        let new = json(r#"{"items":[{"name":"b"},{"name":"a"}]}"#);
+        apply_value_diff(doc.as_item_mut(), &old, &new);
+        let result = doc.to_string();
+        let reparsed: serde_json::Value = toml_edit::de::from_str(&result).unwrap();
+        assert_eq!(reparsed["items"][0]["name"], "b", "{result}");
+        assert_eq!(reparsed["items"][1]["name"], "a", "{result}");
+        assert!(result.contains("# header"), "{result}");
+        assert!(result.contains("# keep"), "{result}");
     }
 
     #[test]
