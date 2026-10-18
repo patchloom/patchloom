@@ -205,6 +205,42 @@ mod basic {
     }
 
     #[test]
+    fn missing_md_file_names_the_os_error_once() {
+        let dir = TempDir::new().unwrap();
+        let missing = dir.path().join("missing.md");
+        let path = missing.to_str().unwrap().to_string();
+        for action in [
+            MdAction::LintAgents {
+                files: vec![path.clone()],
+            },
+            MdAction::DedupeHeadings {
+                files: vec![path.clone()],
+            },
+        ] {
+            let err = run(
+                MdArgs {
+                    action,
+                    write: Default::default(),
+                },
+                &GlobalFlags::test_default(),
+            )
+            .expect_err("missing file");
+            let (payload, code) = crate::exit::structured_error_payload(&err);
+            assert_eq!(code, exit::FAILURE);
+            assert_eq!(payload["error_kind"], "not_found");
+            assert_eq!(payload["applied"], false);
+            let msg = payload["error"].as_str().unwrap_or("");
+            assert_eq!(msg.matches("os error 2").count(), 1, "{msg}");
+            assert!(msg.contains(&format!("failed to read {path}")), "{msg}");
+            assert!(!msg.contains("reading "), "{msg}");
+            let (text, text_code) = crate::exit::classify_dispatch_error(&err);
+            assert_eq!(text_code, exit::FAILURE);
+            assert_eq!(text.matches("os error 2").count(), 1, "{text}");
+        }
+        assert!(!missing.exists());
+    }
+
+    #[test]
     fn strip_inline_code_removes_backtick_spans() {
         assert_eq!(
             strip_inline_code("use `git add .` carefully"),
