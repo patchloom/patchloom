@@ -81,7 +81,7 @@ serde_json = { version = "1", features = ["preserve_order"] }
 # noyalib, not serde_yaml_ng: that crate pulls archived unsafe-libyaml
 # (RUSTSEC-2024-0449, #2667). The dependency key stays serde_yaml_ng so
 # call sites keep one name; the registry package is the safe parser.
-serde_yaml_ng = { package = "noyalib-serde-yaml", version = "0.0.57" }
+serde_yaml_ng = { package = "noyalib-serde-yaml", version = "0.0.58" }
 yaml-edit = "0.3"
 toml_edit = { version = "0.25.15", features = ["serde"] }
 ignore = { version = "0.4", optional = true }
