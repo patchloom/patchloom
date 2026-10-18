@@ -2144,6 +2144,48 @@ index e69de29..0000000\n";
     assert_eq!(fs::read(&path).unwrap(), b"secret-bytes\n");
 }
 
+/// Pure library build (`--no-default-features`, and `ast` without `files`)
+/// does not use the tx engine. This test is absent from the default build.
+#[cfg(not(any(feature = "cli", feature = "files")))]
+#[test]
+fn file_delete_unreadable_without_files_feature_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("secret.txt");
+    fs::write(&path, b"secret-bytes\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o000)).unwrap();
+    }
+    if fs::read_to_string(&path).is_ok() {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        }
+        return;
+    }
+    let err = file_delete(&path, ApplyMode::Apply, None).expect_err("unreadable regular file");
+    assert!(
+        crate::exit::is_invalid_input(&err),
+        "expected invalid_input, got: {err:#}"
+    );
+    let msg = err.to_string();
+    assert!(msg.contains("failed to read"), "msg: {msg}");
+    assert!(
+        msg.contains("Permission denied")
+            || msg.contains("os error")
+            || msg.contains("Access is denied"),
+        "OS detail missing: {msg}"
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+    }
+    assert_eq!(fs::read(&path).unwrap(), b"secret-bytes\n");
+}
+
 #[test]
 fn apply_patch_file_begin_delete_unreadable_is_invalid_input() {
     let dir = TempDir::new().unwrap();
