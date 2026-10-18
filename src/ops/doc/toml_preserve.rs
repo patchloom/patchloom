@@ -366,6 +366,61 @@ fn insert_toml_array_keeping_layout(
     arr.insert_formatted(index, value);
 }
 
+fn array_prefix_str(arr: &toml_edit::Array, index: usize) -> String {
+    arr.get(index)
+        .and_then(|value| value.decor().prefix())
+        .and_then(|raw| raw.as_str())
+        .unwrap_or("")
+        .to_string()
+}
+
+/// Before `arr.remove(idx)`, move a same-line comment onto the item that
+/// still owns it. The comment after a comma is the next value's prefix,
+/// and a last item's comment is the array trailing.
+fn rehome_comment_before_array_remove(arr: &mut toml_edit::Array, idx: usize) {
+    if idx >= arr.len() {
+        return;
+    }
+    let inherited = split_same_line_array_trailing(&array_prefix_str(arr, idx))
+        .map(|(comment, _rest)| comment.to_string());
+    if idx + 1 == arr.len() {
+        let trailing = arr.trailing().as_str().unwrap_or("").to_string();
+        let kept_tail = if let Some((_comment, rest)) = split_same_line_array_trailing(&trailing) {
+            if rest.is_empty() {
+                "\n".to_string()
+            } else {
+                rest.to_string()
+            }
+        } else {
+            trailing
+        };
+        let new_trailing = if let Some(comment) = inherited {
+            if kept_tail.starts_with(['\n', '\r']) {
+                format!("{comment}{kept_tail}")
+            } else {
+                format!("{comment}\n{kept_tail}")
+            }
+        } else {
+            kept_tail
+        };
+        arr.set_trailing(new_trailing);
+        return;
+    }
+    let next_prefix = array_prefix_str(arr, idx + 1);
+    let next_rest = match split_same_line_array_trailing(&next_prefix) {
+        Some((_comment, rest)) => rest.to_string(),
+        None => next_prefix,
+    };
+    let mut new_prefix = String::new();
+    if let Some(comment) = inherited {
+        new_prefix.push_str(&comment);
+    }
+    new_prefix.push_str(&next_rest);
+    if let Some(next) = arr.get_mut(idx + 1) {
+        next.decor_mut().set_prefix(new_prefix);
+    }
+}
+
 fn try_toml_remove_subsequence(
     item: &mut toml_edit::Item,
     old_arr: &[serde_json::Value],
@@ -394,6 +449,10 @@ fn try_toml_remove_subsequence(
             return false;
         }
         for &idx in remove_indices.iter().rev() {
+            // A same-line note after a comma is stored on the next item.
+            // Removing that item would otherwise leave the deleted note
+            // on the survivor and drop the survivor's own note.
+            rehome_comment_before_array_remove(arr, idx);
             arr.remove(idx);
         }
         return true;
@@ -962,6 +1021,81 @@ servers = [
             !b_line.contains(']'),
             "closing bracket stays on its own line: {result}"
         );
+    }
+
+    #[test]
+    fn apply_value_diff_delete_where_keeps_survivor_comment() {
+        let src = "\
+# fleet
+items = [
+  { name = \"a\", port = 1 }, # keep
+  { name = \"b\", port = 2 }, # drop
+]
+";
+        let mut doc = parse_toml(src);
+        let old = json(r#"{"items":[{"name":"a","port":1},{"name":"b","port":2}]}"#);
+        let new = json(r#"{"items":[{"name":"a","port":1}]}"#);
+        apply_value_diff(doc.as_item_mut(), &old, &new);
+        let result = doc.to_string();
+        let reparsed: serde_json::Value = toml_edit::de::from_str(&result).unwrap();
+        assert_eq!(
+            reparsed["items"].as_array().map(|a| a.len()),
+            Some(1),
+            "{result}"
+        );
+        let a_line = result.lines().find(|line| line.contains("\"a\"")).unwrap();
+        assert!(a_line.contains("# keep"), "{result}");
+        assert!(!result.contains("# drop"), "{result}");
+        assert!(!result.contains("\"b\""), "{result}");
+        assert!(result.contains("# fleet"), "{result}");
+    }
+
+    #[test]
+    fn apply_value_diff_delete_first_array_item_keeps_second_comment() {
+        let src = "\
+items = [
+  { name = \"a\" }, # gone
+  { name = \"b\" }, # stay
+]
+";
+        let mut doc = parse_toml(src);
+        let old = json(r#"{"items":[{"name":"a"},{"name":"b"}]}"#);
+        let new = json(r#"{"items":[{"name":"b"}]}"#);
+        apply_value_diff(doc.as_item_mut(), &old, &new);
+        let result = doc.to_string();
+        let reparsed: serde_json::Value = toml_edit::de::from_str(&result).unwrap();
+        assert_eq!(reparsed["items"][0]["name"], "b", "{result}");
+        let b_line = result.lines().find(|line| line.contains("\"b\"")).unwrap();
+        assert!(b_line.contains("# stay"), "{result}");
+        assert!(!result.contains("# gone"), "{result}");
+    }
+
+    #[test]
+    fn apply_value_diff_delete_middle_array_item_keeps_neighbor_comments() {
+        let src = "\
+items = [
+  { name = \"a\" }, # a
+  { name = \"b\" }, # b
+  { name = \"c\" }, # c
+]
+";
+        let mut doc = parse_toml(src);
+        let old = json(r#"{"items":[{"name":"a"},{"name":"b"},{"name":"c"}]}"#);
+        let new = json(r#"{"items":[{"name":"a"},{"name":"c"}]}"#);
+        apply_value_diff(doc.as_item_mut(), &old, &new);
+        let result = doc.to_string();
+        let reparsed: serde_json::Value = toml_edit::de::from_str(&result).unwrap();
+        assert_eq!(
+            reparsed["items"].as_array().map(|a| a.len()),
+            Some(2),
+            "{result}"
+        );
+        let a_line = result.lines().find(|line| line.contains("\"a\"")).unwrap();
+        let c_line = result.lines().find(|line| line.contains("\"c\"")).unwrap();
+        assert!(a_line.contains("# a"), "{result}");
+        assert!(c_line.contains("# c"), "{result}");
+        assert!(!result.contains("# b"), "{result}");
+        assert!(!result.contains("\"b\""), "{result}");
     }
 
     #[test]
