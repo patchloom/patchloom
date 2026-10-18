@@ -998,6 +998,29 @@ mod error_handling {
     }
 
     #[test]
+    fn validate_operation_rejects_replace_path_and_glob() {
+        let plan_json = serde_json::json!({
+            "version": 1,
+            "operations": [{
+                "op": "replace",
+                "path": "one.txt",
+                "glob": "*.rs",
+                "old": "hello",
+                "new": "bye"
+            }]
+        })
+        .to_string();
+        let plan = plan::parse_plan(&plan_json).unwrap();
+
+        let err = validate_operation(&plan.operations[0]).unwrap_err();
+        assert!(
+            err.to_string().contains("path and glob cannot be combined"),
+            "unexpected error: {}",
+            err
+        );
+    }
+
+    #[test]
     fn tx_unsupported_plan_version() {
         let dir = TempDir::new().unwrap();
         let plan_json = serde_json::json!({
