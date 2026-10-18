@@ -746,6 +746,15 @@ mod basic {
     }
 
     #[test]
+    fn parse_value_leading_zero_stays_decimal_string() {
+        assert_eq!(parse_value("01"), json!("01"));
+        assert_eq!(parse_value("007"), json!("007"));
+        assert_eq!(parse_value("-01"), json!("-01"));
+        assert_eq!(parse_value("0"), json!(0));
+        assert_eq!(parse_value("10"), json!(10));
+    }
+
+    #[test]
     fn parse_value_integer_above_i64_max_stays_integral() {
         let v = parse_value("9223372036854775808");
         let n = v.as_number().expect("number");

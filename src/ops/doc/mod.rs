@@ -1445,6 +1445,12 @@ pub fn parse_value(s: &str) -> serde_json::Value {
     if s == "null" {
         return serde_json::Value::Null;
     }
+    // `01` and `-007` are not JSON or TOML numbers. `i64::parse` accepts
+    // them and drops the zeros (`01` became `1`). Keep the typed digits.
+    // A single `0` is the number zero.
+    if padded_integer_token(s) {
+        return serde_json::Value::String(s.to_string());
+    }
     // Integer that fits in TOML's i64.
     if let Ok(n) = s.parse::<i64>() {
         return serde_json::Value::Number(n.into());
@@ -1468,6 +1474,17 @@ pub fn parse_value(s: &str) -> serde_json::Value {
     }
     // Bare string
     serde_json::Value::String(s.to_string())
+}
+
+/// True when `s` is an integer token with a padded zero, such as `01` or `-007`.
+fn padded_integer_token(s: &str) -> bool {
+    let digits = s
+        .strip_prefix('+')
+        .or_else(|| s.strip_prefix('-'))
+        .unwrap_or(s);
+    digits.len() > 1
+        && digits.as_bytes().first() == Some(&b'0')
+        && digits.bytes().all(|b| b.is_ascii_digit())
 }
 
 /// Recursively enumerate all leaf selector paths in a JSON value.
