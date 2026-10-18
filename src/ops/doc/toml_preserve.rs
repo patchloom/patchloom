@@ -306,13 +306,39 @@ fn split_same_line_array_trailing(trailing: &str) -> Option<(&str, &str)> {
     }
 }
 
+/// A comment with no comma (`} # primary`) lives on the value suffix.
+/// Leaving it there puts the next element's comma on the following line.
+fn take_same_line_suffix_comment(arr: &mut toml_edit::Array) -> Option<String> {
+    let last = arr.len().checked_sub(1)?;
+    let value = arr.get_mut(last)?;
+    let suffix = value
+        .decor()
+        .suffix()
+        .and_then(|raw| raw.as_str())
+        .unwrap_or("")
+        .to_string();
+    let (comment, rest) = split_same_line_array_trailing(&suffix)?;
+    let comment = comment.to_string();
+    let new_suffix = if rest.trim_matches(['\n', '\r', ' ', '\t']).is_empty() {
+        String::new()
+    } else {
+        rest.to_string()
+    };
+    value.decor_mut().set_suffix(new_suffix);
+    Some(comment)
+}
+
 fn push_toml_array_keeping_layout(arr: &mut toml_edit::Array, mut value: toml_edit::Value) {
     let Some(item_prefix) = multiline_array_item_prefix(arr) else {
         arr.push_formatted(value);
         return;
     };
+    let suffix_comment = take_same_line_suffix_comment(arr);
     let trailing = arr.trailing().as_str().unwrap_or("").to_string();
     let mut prefix = String::new();
+    if let Some(comment) = suffix_comment {
+        prefix.push_str(&comment);
+    }
     if let Some((comment, rest)) = split_same_line_array_trailing(&trailing) {
         prefix.push_str(comment);
         let new_trailing = if rest.is_empty() {
@@ -321,6 +347,8 @@ fn push_toml_array_keeping_layout(arr: &mut toml_edit::Array, mut value: toml_ed
             rest.to_string()
         };
         arr.set_trailing(new_trailing);
+    } else if !trailing.contains('\n') {
+        arr.set_trailing("\n");
     }
     prefix.push_str(&item_prefix);
     value.decor_mut().set_prefix(prefix);
@@ -898,6 +926,41 @@ n = 2
                 .lines()
                 .any(|line| line.contains("[1,") && line.contains("# tail")),
             "one-line tail comment stays outside the brackets: {result}"
+        );
+    }
+
+    #[test]
+    fn apply_value_diff_multiline_array_append_without_trailing_comma() {
+        let src = "\
+servers = [
+  { name = \"a\", port = 1 } # primary
+]
+";
+        let mut doc = parse_toml(src);
+        let old = json(r#"{"servers":[{"name":"a","port":1}]}"#);
+        let new = json(r#"{"servers":[{"name":"a","port":1},{"name":"b","port":2}]}"#);
+        apply_value_diff(doc.as_item_mut(), &old, &new);
+        let result = doc.to_string();
+        let reparsed: serde_json::Value = toml_edit::de::from_str(&result).unwrap();
+        assert_eq!(reparsed["servers"][1]["name"], "b", "{result}");
+        let a_line = result.lines().find(|line| line.contains("\"a\"")).unwrap();
+        let b_line = result.lines().find(|line| line.contains("\"b\"")).unwrap();
+        assert_ne!(a_line, b_line, "{result}");
+        assert!(
+            a_line.contains("# primary"),
+            "comment stays on the original item: {result}"
+        );
+        assert!(
+            a_line.contains(','),
+            "comma stays on the original item line: {result}"
+        );
+        assert!(
+            !result.lines().any(|line| line.trim() == ","),
+            "comma must not sit alone under the comment: {result}"
+        );
+        assert!(
+            !b_line.contains(']'),
+            "closing bracket stays on its own line: {result}"
         );
     }
 
