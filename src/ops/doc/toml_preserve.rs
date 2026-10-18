@@ -1,3 +1,5 @@
+//! size-waiver: TOML comment-preserving value diff is one writer (policy #1408).
+
 pub(crate) fn apply_value_diff(
     item: &mut toml_edit::Item,
     old: &serde_json::Value,
@@ -204,11 +206,11 @@ fn try_toml_extend_array(
         }
         if append {
             for value in extras {
-                arr.push(json_to_toml_value(value));
+                push_toml_array_keeping_layout(arr, json_to_toml_value(value));
             }
         } else {
             for (i, value) in extras.iter().enumerate() {
-                arr.insert(i, json_to_toml_value(value));
+                insert_toml_array_keeping_layout(arr, i, json_to_toml_value(value));
             }
         }
         return true;
@@ -243,6 +245,125 @@ fn try_toml_extend_array(
         return true;
     }
     false
+}
+
+/// Prefix to copy onto a new element of a multiline array.
+///
+/// A one-line array (`nums = [1] # tail`) has no newline inside the
+/// brackets, so this returns `None` and the tail comment stays put.
+fn multiline_array_item_prefix(arr: &toml_edit::Array) -> Option<String> {
+    let mut clean: Option<String> = None;
+    let mut saw_newline = false;
+    let mut indent: Option<String> = None;
+    for value in arr.iter() {
+        let Some(prefix) = value.decor().prefix().and_then(|raw| raw.as_str()) else {
+            continue;
+        };
+        if let Some(line) = prefix.rsplit(['\n', '\r']).next()
+            && !line.is_empty()
+            && line.chars().all(|c| c == ' ' || c == '\t')
+        {
+            indent = Some(line.to_string());
+        }
+        if prefix.contains('\n') {
+            saw_newline = true;
+            if !prefix.contains('#') {
+                clean = Some(prefix.to_string());
+            }
+        }
+    }
+    if let Some(prefix) = clean {
+        return Some(prefix);
+    }
+    let trailing_has_nl = arr
+        .trailing()
+        .as_str()
+        .is_some_and(|trailing| trailing.contains('\n'));
+    if saw_newline || trailing_has_nl {
+        let indent = indent.unwrap_or_else(|| "  ".to_string());
+        return Some(format!("\n{indent}"));
+    }
+    None
+}
+
+/// `}, # note\n` stores `# note` in the array trailing, on the last
+/// element's line. A trailing that starts with a newline is a comment
+/// above `]`, not a note on that element.
+fn split_same_line_array_trailing(trailing: &str) -> Option<(&str, &str)> {
+    if trailing.starts_with(['\n', '\r']) {
+        return None;
+    }
+    let hash = trailing.find('#')?;
+    let before = &trailing[..hash];
+    if before.contains('\n') || before.contains('\r') {
+        return None;
+    }
+    if let Some(rel) = trailing[hash..].find(['\n', '\r']) {
+        let cut = hash + rel;
+        Some((&trailing[..cut], &trailing[cut..]))
+    } else {
+        Some((trailing, ""))
+    }
+}
+
+/// A comment with no comma (`} # primary`) lives on the value suffix.
+/// Leaving it there puts the next element's comma on the following line.
+fn take_same_line_suffix_comment(arr: &mut toml_edit::Array) -> Option<String> {
+    let last = arr.len().checked_sub(1)?;
+    let value = arr.get_mut(last)?;
+    let suffix = value
+        .decor()
+        .suffix()
+        .and_then(|raw| raw.as_str())
+        .unwrap_or("")
+        .to_string();
+    let (comment, rest) = split_same_line_array_trailing(&suffix)?;
+    let comment = comment.to_string();
+    let new_suffix = if rest.trim_matches(['\n', '\r', ' ', '\t']).is_empty() {
+        String::new()
+    } else {
+        rest.to_string()
+    };
+    value.decor_mut().set_suffix(new_suffix);
+    Some(comment)
+}
+
+fn push_toml_array_keeping_layout(arr: &mut toml_edit::Array, mut value: toml_edit::Value) {
+    let Some(item_prefix) = multiline_array_item_prefix(arr) else {
+        arr.push_formatted(value);
+        return;
+    };
+    let suffix_comment = take_same_line_suffix_comment(arr);
+    let trailing = arr.trailing().as_str().unwrap_or("").to_string();
+    let mut prefix = String::new();
+    if let Some(comment) = suffix_comment {
+        prefix.push_str(&comment);
+    }
+    if let Some((comment, rest)) = split_same_line_array_trailing(&trailing) {
+        prefix.push_str(comment);
+        let new_trailing = if rest.is_empty() {
+            "\n".to_string()
+        } else {
+            rest.to_string()
+        };
+        arr.set_trailing(new_trailing);
+    } else if !trailing.contains('\n') {
+        arr.set_trailing("\n");
+    }
+    prefix.push_str(&item_prefix);
+    value.decor_mut().set_prefix(prefix);
+    arr.push_formatted(value);
+}
+
+fn insert_toml_array_keeping_layout(
+    arr: &mut toml_edit::Array,
+    index: usize,
+    mut value: toml_edit::Value,
+) {
+    if let Some(item_prefix) = multiline_array_item_prefix(arr) {
+        value.decor_mut().set_prefix(item_prefix);
+    }
+    arr.insert_formatted(index, value);
 }
 
 fn try_toml_remove_subsequence(
@@ -800,6 +921,140 @@ n = 2
         let reparsed: serde_json::Value = toml_edit::de::from_str(&result).unwrap();
         assert_eq!(reparsed["nums"], json("[1,2]"), "{result}");
         assert!(result.contains("# tail"), "{result}");
+        assert!(
+            result
+                .lines()
+                .any(|line| line.contains("[1,") && line.contains("# tail")),
+            "one-line tail comment stays outside the brackets: {result}"
+        );
+    }
+
+    #[test]
+    fn apply_value_diff_multiline_array_append_without_trailing_comma() {
+        let src = "\
+servers = [
+  { name = \"a\", port = 1 } # primary
+]
+";
+        let mut doc = parse_toml(src);
+        let old = json(r#"{"servers":[{"name":"a","port":1}]}"#);
+        let new = json(r#"{"servers":[{"name":"a","port":1},{"name":"b","port":2}]}"#);
+        apply_value_diff(doc.as_item_mut(), &old, &new);
+        let result = doc.to_string();
+        let reparsed: serde_json::Value = toml_edit::de::from_str(&result).unwrap();
+        assert_eq!(reparsed["servers"][1]["name"], "b", "{result}");
+        let a_line = result.lines().find(|line| line.contains("\"a\"")).unwrap();
+        let b_line = result.lines().find(|line| line.contains("\"b\"")).unwrap();
+        assert_ne!(a_line, b_line, "{result}");
+        assert!(
+            a_line.contains("# primary"),
+            "comment stays on the original item: {result}"
+        );
+        assert!(
+            a_line.contains(','),
+            "comma stays on the original item line: {result}"
+        );
+        assert!(
+            !result.lines().any(|line| line.trim() == ","),
+            "comma must not sit alone under the comment: {result}"
+        );
+        assert!(
+            !b_line.contains(']'),
+            "closing bracket stays on its own line: {result}"
+        );
+    }
+
+    #[test]
+    fn apply_value_diff_multiline_array_append_keeps_item_comment() {
+        let src = "\
+# fleet
+servers = [
+  { name = \"a\", port = 1 }, # primary
+]
+";
+        let mut doc = parse_toml(src);
+        let old = json(r#"{"servers":[{"name":"a","port":1}]}"#);
+        let new = json(r#"{"servers":[{"name":"a","port":1},{"name":"b","port":2}]}"#);
+        apply_value_diff(doc.as_item_mut(), &old, &new);
+        let result = doc.to_string();
+        let reparsed: serde_json::Value = toml_edit::de::from_str(&result).unwrap();
+        assert_eq!(reparsed["servers"][1]["name"], "b", "{result}");
+        let a_line = result.lines().find(|line| line.contains("\"a\"")).unwrap();
+        let b_line = result.lines().find(|line| line.contains("\"b\"")).unwrap();
+        assert_ne!(a_line, b_line, "{result}");
+        assert!(a_line.contains("# primary"), "{result}");
+        assert!(!b_line.contains('#'), "{result}");
+        assert!(result.contains("# fleet"), "{result}");
+    }
+
+    #[test]
+    fn apply_value_diff_multiline_array_prepend_keeps_item_comment() {
+        let src = "\
+servers = [
+  { name = \"a\", port = 1 }, # primary
+]
+";
+        let mut doc = parse_toml(src);
+        let old = json(r#"{"servers":[{"name":"a","port":1}]}"#);
+        let new = json(r#"{"servers":[{"name":"b","port":2},{"name":"a","port":1}]}"#);
+        apply_value_diff(doc.as_item_mut(), &old, &new);
+        let result = doc.to_string();
+        let reparsed: serde_json::Value = toml_edit::de::from_str(&result).unwrap();
+        assert_eq!(reparsed["servers"][0]["name"], "b", "{result}");
+        let a_line = result.lines().find(|line| line.contains("\"a\"")).unwrap();
+        let b_line = result.lines().find(|line| line.contains("\"b\"")).unwrap();
+        assert_ne!(a_line, b_line, "{result}");
+        assert!(a_line.contains("# primary"), "{result}");
+        assert!(!b_line.contains('#'), "{result}");
+    }
+
+    #[test]
+    fn apply_value_diff_multiline_array_append_keeps_comment_above_bracket() {
+        let src = "\
+nums = [
+  1,
+  # keep
+]
+";
+        let mut doc = parse_toml(src);
+        let old = json(r#"{"nums":[1]}"#);
+        let new = json(r#"{"nums":[1,2]}"#);
+        apply_value_diff(doc.as_item_mut(), &old, &new);
+        let result = doc.to_string();
+        let reparsed: serde_json::Value = toml_edit::de::from_str(&result).unwrap();
+        assert_eq!(reparsed["nums"], json("[1,2]"), "{result}");
+        let keep_at = result.find("# keep").expect(&result);
+        let two_at = result.find('2').expect(&result);
+        assert!(two_at < keep_at, "{result}");
+        assert!(
+            !result
+                .lines()
+                .any(|line| line.contains('2') && line.contains("# keep")),
+            "{result}"
+        );
+    }
+
+    #[test]
+    fn apply_value_diff_multiline_plain_array_append_stays_one_item_per_line() {
+        let src = "\
+nums = [
+  1,
+  2,
+]
+";
+        let mut doc = parse_toml(src);
+        let old = json(r#"{"nums":[1,2]}"#);
+        let new = json(r#"{"nums":[1,2,3]}"#);
+        apply_value_diff(doc.as_item_mut(), &old, &new);
+        let result = doc.to_string();
+        let reparsed: serde_json::Value = toml_edit::de::from_str(&result).unwrap();
+        assert_eq!(reparsed["nums"], json("[1,2,3]"), "{result}");
+        assert!(
+            !result
+                .lines()
+                .any(|line| line.contains('1') && line.contains('2') && line.contains('3')),
+            "{result}"
+        );
     }
 
     #[test]
