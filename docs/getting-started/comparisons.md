@@ -43,7 +43,7 @@ Install notes: [MCP setup](mcp-setup.md) (Cursor / Claude / Codex paste configs 
 | `yq 'select(document_index == 0) \| .a' multi.yaml` | `patchloom doc get multi.yaml 0.a` |
 | `yq -i '.[0].image = "x"' multi.yaml` | `patchloom doc set multi.yaml 0.image x --apply` |
 | `yq '(.items[] \| select(.name == "a")).v = 99' -i f.yaml` | `patchloom doc update f.yaml 'items[name=a].v' 99 --apply` (or MCP `doc_update`); **not** `doc set` |
-| `yq '.items[] \| select(.name == "a")' f.yaml` | `patchloom doc select f.yaml items --predicate name=a` (or MCP `doc_query` / plan) |
+| `yq '.items[] \| select(.name == "a")' f.yaml` | `patchloom doc select f.yaml 'items[name=a]'` (or MCP `doc_query` action `select`) |
 
 ### `doc set` vs `doc update` (agent DX)
 

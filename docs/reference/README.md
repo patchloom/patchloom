@@ -904,7 +904,7 @@ Predicates can be chained: `data[type=server][port>8000]`.
 <!-- ref:doc-action:select -->
 ### `doc select`
 
-- **What it does:** Reads only the values that match a selector path or predicate.
+- **What it does:** Reads only the values that match a selector path or predicate. The predicate is part of the selector (`items[name=a]`). There is no `--predicate` flag on `doc select` (`doc delete-where` is the command that takes `--predicate`). One match is the value itself. Two or more matches are an array. That is the same rule as `doc get` (#1838).
 - **Use when:** You need a filtered read view of a larger structure.
 - **Prefer instead:** Use `doc update` or `doc delete-where` when the end goal is mutation rather than inspection.
 
