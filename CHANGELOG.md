@@ -11,6 +11,22 @@ present (applied to the GitHub Release body by the host job). Versioned
 sections below are managed by release-please.
 
 
+## [0.37.4](https://github.com/patchloom/patchloom/compare/patchloom-v0.37.3...patchloom-v0.37.4) (2026-10-18)
+
+
+### Bug Fixes
+
+* keep a multiline TOML array comment on its item ([#2687](https://github.com/patchloom/patchloom/issues/2687)) ([fa30b8e](https://github.com/patchloom/patchloom/commit/fa30b8ee24eea5fc60bafc7baf9b64ce3d42b8c0))
+* keep a multiline toml array's indent when an element changes ([#2684](https://github.com/patchloom/patchloom/issues/2684)) ([bfb3277](https://github.com/patchloom/patchloom/commit/bfb327753492b306f99b683557a3393bb4fe07a1))
+* keep a TOML array item's comment when a neighbor is removed ([#2688](https://github.com/patchloom/patchloom/issues/2688)) ([23fc665](https://github.com/patchloom/patchloom/commit/23fc66504ddaa3bafc35d8a66c46973d85115c7f))
+* keep a toml inline comment when a scalar changes ([#2683](https://github.com/patchloom/patchloom/issues/2683)) ([10c3dac](https://github.com/patchloom/patchloom/commit/10c3dac960c5321de09baa6cd1f2a5ead47d0f60))
+* keep leading zeros in a doc value token ([#2686](https://github.com/patchloom/patchloom/issues/2686)) ([86e761e](https://github.com/patchloom/patchloom/commit/86e761e03045c70fc3c79b7ddab4b302531ad7f9))
+* keep toml comments when a key is renamed ([#2685](https://github.com/patchloom/patchloom/issues/2685)) ([d5c72b6](https://github.com/patchloom/patchloom/commit/d5c72b62ccec2858e639884a878aafb1d17daa50))
+* keep toml comments when an array grows at one end ([#2682](https://github.com/patchloom/patchloom/issues/2682)) ([e6a5c76](https://github.com/patchloom/patchloom/commit/e6a5c76dbf3e1530c6dfa97bf80dcd67e8181cc3))
+* print a missing markdown path's OS error once ([#2681](https://github.com/patchloom/patchloom/issues/2681)) ([d047e87](https://github.com/patchloom/patchloom/commit/d047e87ff010a85ceb11d391567d56c8b7efb300))
+* reject replace plans that set both path and glob ([#2692](https://github.com/patchloom/patchloom/issues/2692)) ([95374eb](https://github.com/patchloom/patchloom/commit/95374eb5c364979f3130d9dc2aafe1bf9c2b0f5d))
+* reject wildcard doc.ensure, keep toml comments, and surface unreadable deletes ([#2679](https://github.com/patchloom/patchloom/issues/2679)) ([697d43f](https://github.com/patchloom/patchloom/commit/697d43fca68007a57fad83247b4fa1a938750965))
+
 ## [0.37.3](https://github.com/patchloom/patchloom/compare/patchloom-v0.37.2...patchloom-v0.37.3) (2026-10-16)
 
 
