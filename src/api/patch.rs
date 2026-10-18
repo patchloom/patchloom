@@ -294,9 +294,10 @@ fn map_deletion_apply_hunks_err(path: &str, e: String) -> anyhow::Error {
     }
 }
 
-/// Empty-hunk delete: no-load snapshot (regular file text; symlink / FIFO /
-/// socket stay empty). Hunked: load + apply. Empty applied → Delete
-/// (symlink snapshot empty). Leftover applied → Rewrite (original=loaded).
+/// Empty-hunk delete: load a text snapshot. Binary and invalid UTF-8 stay
+/// empty so path-only unlink still works. Permission and other read errors
+/// return. Symlink / FIFO / socket stay empty and are not opened. Hunked:
+/// load + apply. Empty applied → Delete. Leftover applied → Rewrite.
 enum HunkedDeleteOutcome {
     Delete {
         original: String,
@@ -322,8 +323,18 @@ fn deletion_after_hunks(
             .into());
         }
         crate::ops::file::ensure_unlinkable_not_directory(load_path, display_path)?;
+        // UTF-8 keeps a text snapshot. Binary and invalid UTF-8 stay an
+        // empty snapshot so path-only unlink still works. Any other read
+        // error (permission) returns here. Staging an empty original and
+        // failing in save_before_delete drops the typed kind.
         let original = if crate::ops::file::is_regular_file_for_backup(load_path) {
-            crate::files::load_text_strict(load_path, load_rel).unwrap_or_default()
+            match crate::files::load_text_strict(load_path, load_rel) {
+                Ok(text) => text,
+                Err(e) if crate::exit::is_binary(&e) || crate::exit::is_invalid_encoding(&e) => {
+                    String::new()
+                }
+                Err(e) => return Err(e),
+            }
         } else {
             String::new()
         };

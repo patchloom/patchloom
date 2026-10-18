@@ -2099,6 +2099,51 @@ index e69de29..0000000\n";
     assert!(!dir.path().join("gone.rs").exists());
 }
 
+#[test]
+fn apply_patch_file_empty_hunk_unreadable_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("secret.txt");
+    fs::write(&path, b"secret-bytes\n").unwrap();
+    // Mode 000 is Unix. Root and Windows can still read it; skip then.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o000)).unwrap();
+    }
+    if fs::read_to_string(&path).is_ok() {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        }
+        return;
+    }
+    let patch = "\
+diff --git a/secret.txt b/secret.txt\n\
+deleted file mode 100644\n\
+index e69de29..0000000\n";
+    let err = apply_patch_file(patch, dir.path(), ApplyMode::Apply, None)
+        .expect_err("unreadable regular file");
+    assert!(
+        crate::exit::is_invalid_input(&err),
+        "expected invalid_input, got: {err:#}"
+    );
+    let msg = err.to_string();
+    assert!(msg.contains("failed to read"), "msg: {msg}");
+    assert!(
+        msg.contains("Permission denied")
+            || msg.contains("os error")
+            || msg.contains("Access is denied"),
+        "OS detail missing: {msg}"
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+    }
+    assert_eq!(fs::read(&path).unwrap(), b"secret-bytes\n");
+}
+
 #[cfg(any(feature = "cli", feature = "files"))]
 #[test]
 fn execute_plan_empty_create_refuses_existing_dest() {
