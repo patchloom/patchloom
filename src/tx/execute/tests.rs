@@ -1177,6 +1177,60 @@ fn file_delete_unreadable_regular_file_is_invalid_input() {
 }
 
 #[test]
+fn patch_apply_empty_hunk_unreadable_regular_file_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    let name = "secret.txt";
+    let file = dir.path().join(name);
+    std::fs::write(&file, b"secret-bytes\n").unwrap();
+    // Mode 000 is Unix. Root and Windows can still read it; skip then.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o000)).unwrap();
+    }
+    if std::fs::read_to_string(&file).is_ok() {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+        }
+        return;
+    }
+    let op = crate::plan::Operation::PatchApply {
+        diff: "diff --git a/secret.txt b/secret.txt\ndeleted file mode 100644\nindex e69de29..0000000\n".into(),
+        on_stale: Default::default(),
+        allow_conflicts: false,
+        replace_all: false,
+    };
+    let mut f = TxStateFixture::new();
+    let mut tx = f.state(dir.path());
+    let err =
+        crate::tx::patch_op::execute_patch_op(&op, &mut tx).expect_err("unreadable regular file");
+    assert!(
+        crate::exit::is_invalid_input(&err),
+        "expected invalid_input, got: {err:#}"
+    );
+    let msg = err.to_string();
+    assert!(msg.contains("failed to read"), "msg: {msg}");
+    assert!(
+        msg.contains("Permission denied")
+            || msg.contains("os error")
+            || msg.contains("Access is denied"),
+        "OS detail missing: {msg}"
+    );
+    assert!(
+        !tx.deletions.contains(&file),
+        "unreadable delete must not be staged"
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+    }
+    assert_eq!(std::fs::read(&file).unwrap(), b"secret-bytes\n");
+}
+
+#[test]
 fn path_present_for_if_exists_treats_deleted_as_absent() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("gone.txt");

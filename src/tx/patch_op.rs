@@ -79,24 +79,47 @@ pub(crate) fn execute_patch_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::
                         .into());
                     }
                     crate::ops::file::ensure_unlinkable_not_directory(&file_path, &result.path)?;
-                    // FileDelete soft snapshot: binary / invalid UTF-8 /
-                    // unreadable → empty pair. Do not Strict-peel binary on
-                    // empty-hunk path-only delete. Hunked loader already
-                    // Strict-loaded text into pending; keep that original.
-                    // Overwrite Special originals so EditResult cannot leak
-                    // followed symlink / FIFO / socket bytes.
-                    tx.existed_before.insert(file_path.clone());
-                    if crate::ops::file::is_regular_file_for_backup(&file_path) {
-                        if !tx.pending.contains_key(&file_path) {
-                            if let Some(content) = crate::files::read_text_file(&file_path) {
-                                tx.pending
-                                    .insert(file_path.clone(), (content.clone(), content));
-                            } else {
-                                tx.pending
-                                    .insert(file_path.clone(), (String::new(), String::new()));
+                    // UTF-8 keeps a text snapshot. Binary and invalid UTF-8
+                    // keep an empty pair only after open succeeds, so a
+                    // regular file that cannot be opened is not staged
+                    // (commit backup would drop the OS error). Special nodes
+                    // stay empty and are not opened. Do not Strict-peel
+                    // binary. Hunked loader already put text in pending;
+                    // keep that original.
+                    let stage_pair = if crate::ops::file::is_regular_file_for_backup(&file_path)
+                        && !tx.pending.contains_key(&file_path)
+                    {
+                        if let Some(content) = crate::files::read_text_file(&file_path) {
+                            Some(content)
+                        } else {
+                            match std::fs::File::open(&file_path) {
+                                Ok(file) => {
+                                    drop(file);
+                                    Some(String::new())
+                                }
+                                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                                    return Err(std::io::Error::new(
+                                        std::io::ErrorKind::NotFound,
+                                        format!("file not found: {}", result.path),
+                                    )
+                                    .into());
+                                }
+                                Err(e) => {
+                                    return Err(crate::exit::InvalidInputError {
+                                        msg: format!("failed to read {}: {e}", result.path),
+                                    }
+                                    .into());
+                                }
                             }
                         }
                     } else {
+                        None
+                    };
+                    tx.existed_before.insert(file_path.clone());
+                    if let Some(content) = stage_pair {
+                        tx.pending
+                            .insert(file_path.clone(), (content.clone(), content));
+                    } else if !crate::ops::file::is_regular_file_for_backup(&file_path) {
                         tx.pending
                             .insert(file_path.clone(), (String::new(), String::new()));
                     }
