@@ -70,7 +70,12 @@ pub(crate) fn apply_value_diff(
                     if o != n
                         && let Some(v) = arr.get_mut(i)
                     {
-                        *v = json_to_toml_value(n);
+                        // Keep the element's prefix (newline and indent) and
+                        // its trailing comment. A fresh value starts at `[9,`.
+                        let decor = v.decor().clone();
+                        let mut new_val = json_to_toml_value(n);
+                        *new_val.decor_mut() = decor;
+                        *v = new_val;
                     }
                 }
             } else if item.as_array_of_tables().is_some() && new_arr.iter().any(|n| !n.is_object())
@@ -598,6 +603,23 @@ n = 2 # other
             !result.contains(", 2, 3]"),
             "old array layout should not persist: {result}"
         );
+    }
+
+    #[test]
+    fn apply_value_diff_same_length_array_keeps_element_prefix() {
+        let src = "nums = [\n  1, # keep\n  2, # other\n]\n";
+        let mut doc = parse_toml(src);
+        let old = json(r#"{"nums":[1,2]}"#);
+        let new = json(r#"{"nums":[9,2]}"#);
+        apply_value_diff(doc.as_item_mut(), &old, &new);
+        let result = doc.to_string();
+        let reparsed: serde_json::Value = toml_edit::de::from_str(&result).unwrap();
+        assert_eq!(reparsed["nums"], json("[9,2]"), "{result}");
+        assert!(
+            result.contains("[\n  9, # keep"),
+            "multiline element prefix and comment must stay: {result}"
+        );
+        assert!(result.contains("# other"), "{result}");
     }
 
     #[test]
