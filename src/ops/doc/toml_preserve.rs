@@ -109,8 +109,19 @@ pub(crate) fn apply_value_diff(
 
         // Type change or scalar change: wholesale replacement.
         // A different-length array is handled above.
+        // A scalar keeps the old value's comment. Replacing the item
+        // drops `n = 1 # keep` down to `n = 9`.
         _ => {
-            *item = json_to_toml_item(new);
+            if !new.is_array()
+                && !new.is_object()
+                && let Some(decor) = item.as_value().map(|value| value.decor().clone())
+            {
+                let mut new_val = json_to_toml_value(new);
+                *new_val.decor_mut() = decor;
+                *item = toml_edit::Item::Value(new_val);
+            } else {
+                *item = json_to_toml_item(new);
+            }
         }
     }
 }
@@ -462,6 +473,41 @@ mod tests {
             result.contains("\"new\""),
             "scalar should be updated: {result}"
         );
+    }
+
+    #[test]
+    fn apply_value_diff_scalar_change_keeps_inline_comment() {
+        let mut doc = parse_toml("n = 1 # keep\n");
+        let old = json(r#"{"n":1}"#);
+        let new = json(r#"{"n":9}"#);
+        apply_value_diff(doc.as_item_mut(), &old, &new);
+        let result = doc.to_string();
+        let reparsed: serde_json::Value = toml_edit::de::from_str(&result).unwrap();
+        assert_eq!(reparsed["n"], json("9"), "{result}");
+        assert!(result.contains("# keep"), "{result}");
+    }
+
+    #[test]
+    fn apply_value_diff_table_field_change_keeps_inline_comment() {
+        let src = "\
+[[items]]
+name = \"a\"
+n = 1 # keep
+
+[[items]]
+name = \"b\"
+n = 2 # other
+";
+        let mut doc = parse_toml(src);
+        let old = json(r#"{"items":[{"name":"a","n":1},{"name":"b","n":2}]}"#);
+        let new = json(r#"{"items":[{"name":"a","n":9},{"name":"b","n":2}]}"#);
+        apply_value_diff(doc.as_item_mut(), &old, &new);
+        let result = doc.to_string();
+        let reparsed: serde_json::Value = toml_edit::de::from_str(&result).unwrap();
+        assert_eq!(reparsed["items"][0]["n"], json("9"), "{result}");
+        assert_eq!(reparsed["items"][1]["n"], json("2"), "{result}");
+        assert!(result.contains("# keep"), "{result}");
+        assert!(result.contains("# other"), "{result}");
     }
 
     #[test]
