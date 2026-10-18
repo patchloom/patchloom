@@ -1357,6 +1357,37 @@ fn doc_set_missing_file_without_if_exists_errors() {
     );
 }
 
+#[test]
+fn doc_set_malformed_json_prefixes_path_once() {
+    let dir = TempDir::new().unwrap();
+    std::fs::write(dir.path().join("a.json"), "not json").unwrap();
+    let plan: crate::plan::Plan = serde_json::from_value(serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "doc.set",
+            "path": "a.json",
+            "selector": "k",
+            "value": 1
+        }]
+    }))
+    .expect("plan json");
+    let report = crate::tx::execute_plan_direct(plan, dir.path(), None).expect("typed failure");
+    assert!(!report.ok);
+    assert_eq!(report.error_kind.as_deref(), Some("parse_error"));
+    assert!(!report.applied);
+    let msg = report.error.clone().unwrap_or_default();
+    assert!(
+        !msg.contains("a.json: a.json:"),
+        "path must appear once: {msg}"
+    );
+    assert!(msg.contains("a.json:"), "{msg}");
+    assert!(msg.contains("expected ident"), "{msg}");
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("a.json")).unwrap(),
+        "not json"
+    );
+}
+
 fn apply_ops(dir: &std::path::Path, ops: serde_json::Value) -> crate::tx::TxOutput {
     let plan: crate::plan::Plan = serde_json::from_value(serde_json::json!({
         "version": 1,
