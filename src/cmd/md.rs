@@ -4,7 +4,6 @@ use crate::cmd::output::WritePhase;
 use crate::exit;
 use crate::ops::md::{dedupe_headings_in, lint_agents_content};
 use crate::plan::Operation;
-use anyhow::Context;
 use clap::Args;
 use serde::Serialize;
 
@@ -461,7 +460,9 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                         global.emit_error_json_kind(Some(kind), &msg)?;
                         return Ok(exit::FAILURE);
                     }
-                    Err(e) => return Err(e).with_context(|| format!("reading {path_str}")),
+                    // load_text_strict already stores the path and the OS error.
+                    // A second "reading {path}" layer prints that OS sentence twice.
+                    Err(e) => return Err(e),
                 };
                 let (_new, extra) = dedupe_headings_in(&original);
                 removed.extend(extra);
@@ -613,7 +614,9 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                         global.emit_error_json_kind(Some(kind), &msg)?;
                         return Ok(exit::FAILURE);
                     }
-                    Err(e) => return Err(e).with_context(|| format!("reading {file}")),
+                    // load_text_strict already stores the path and the OS error.
+                    // A second "reading {path}" layer prints that OS sentence twice.
+                    Err(e) => return Err(e),
                 };
                 for mut issue in lint_agents_content(&content) {
                     issue.path = Some(file.clone());
