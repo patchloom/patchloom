@@ -115,15 +115,27 @@ pub(crate) fn apply_begin_patch_ops(
                     )
                     .into());
                 }
-                let original = created.get(&dest).cloned().unwrap_or_else(|| {
-                    // Same snapshot rule as file_delete: do not follow
-                    // symlink / FIFO / socket after entry PathGuard.
-                    if is_regular_file_for_backup(&dest) {
-                        crate::files::load_text_strict(&dest, path).unwrap_or_default()
-                    } else {
-                        String::new()
+                // Staged Add text wins. On disk, UTF-8 keeps a text snapshot.
+                // Binary and invalid UTF-8 stay empty so path-only unlink
+                // still works. Permission and other read errors return here.
+                // An empty snapshot that fails in save_before_delete drops
+                // the typed kind. Symlink / FIFO / socket stay empty.
+                let original = if let Some(text) = created.get(&dest) {
+                    text.clone()
+                } else if is_regular_file_for_backup(&dest) {
+                    match crate::files::load_text_strict(&dest, path) {
+                        Ok(text) => text,
+                        Err(e)
+                            if crate::exit::is_binary(&e)
+                                || crate::exit::is_invalid_encoding(&e) =>
+                        {
+                            String::new()
+                        }
+                        Err(e) => return Err(e),
                     }
-                });
+                } else {
+                    String::new()
+                };
                 created.remove(&dest);
                 deleted.insert(dest.clone());
                 staged.push(StageOp::Delete {
