@@ -242,6 +242,13 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
         .map(crate::ops::read::parse_line_range)
         .transpose()?;
 
+    if path.is_some() && glob.is_some() {
+        return Err(crate::exit::InvalidInputError {
+            msg: "replace: path and glob cannot be combined".into(),
+        }
+        .into());
+    }
+
     if let Some(p) = path {
         let file_path = tx.cwd.join(p);
         tx.refuse_soft_non_text(&file_path, p)?;
@@ -1198,6 +1205,58 @@ mod tests {
         assert!(
             crate::exit::is_invalid_input(&err),
             "missing path/glob should be InvalidInputError: {err}"
+        );
+    }
+
+    #[test]
+    fn replace_path_and_glob_together_is_invalid_input() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("one.txt"), "hello").unwrap();
+        std::fs::write(dir.path().join("other.rs"), "hello").unwrap();
+
+        let op = Operation::Replace {
+            path: Some("one.txt".into()),
+            glob: Some("*.rs".into()),
+            regex: false,
+            old: "hello".into(),
+            new_text: Some("bye".into()),
+            nth: None,
+            insert_before: None,
+            insert_after: None,
+            case_insensitive: false,
+            multiline: false,
+            whole_line: false,
+            word_boundary: false,
+            range: None,
+            before_context: None,
+            after_context: None,
+            if_exists: false,
+            unique: false,
+            require_change: false,
+            command_position: false,
+            fuzzy: false,
+            min_fuzzy_score: None,
+            allow_absent_old: false,
+        };
+
+        let mut f = TxStateFixture::new();
+        let mut tx = f.state(dir.path());
+        let err = execute_replace_op(&op, &mut tx).expect_err("path and glob together");
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "path+glob should be InvalidInputError: {err}"
+        );
+        assert!(
+            err.to_string().contains("path and glob cannot be combined"),
+            "unexpected error: {err}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("one.txt")).unwrap(),
+            "hello"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("other.rs")).unwrap(),
+            "hello"
         );
     }
 

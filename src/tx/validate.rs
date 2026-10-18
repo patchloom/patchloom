@@ -33,6 +33,8 @@ pub(crate) fn validate_operation(op: &Operation) -> anyhow::Result<()> {
 
     match op {
         Operation::Replace {
+            path,
+            glob,
             old,
             new_text,
             insert_before,
@@ -42,22 +44,30 @@ pub(crate) fn validate_operation(op: &Operation) -> anyhow::Result<()> {
             multiline,
             range,
             ..
-        } => validate_replace_args(&ReplaceValidationParams {
-            pattern: old,
-            has_to: new_text.is_some(),
-            has_insert_before: insert_before.is_some(),
-            has_insert_after: insert_after.is_some(),
-            nth: *nth,
-            whole_line: *whole_line,
-            multiline: *multiline,
-            has_range: range.is_some(),
-        })
-        .map_err(|e| {
-            crate::exit::InvalidInputError {
-                msg: format!("replace: {e}"),
+        } => {
+            if path.is_some() && glob.is_some() {
+                return Err(crate::exit::InvalidInputError {
+                    msg: "replace: path and glob cannot be combined".into(),
+                }
+                .into());
             }
-            .into()
-        }),
+            validate_replace_args(&ReplaceValidationParams {
+                pattern: old,
+                has_to: new_text.is_some(),
+                has_insert_before: insert_before.is_some(),
+                has_insert_after: insert_after.is_some(),
+                nth: *nth,
+                whole_line: *whole_line,
+                multiline: *multiline,
+                has_range: range.is_some(),
+            })
+            .map_err(|e| {
+                crate::exit::InvalidInputError {
+                    msg: format!("replace: {e}"),
+                }
+                .into()
+            })
+        }
         Operation::ApplyFragment {
             fragment,
             instruction,
