@@ -1307,6 +1307,22 @@ impl PatchloomService {
         .await
     }
 
+    /// Issue paths from the scanner are absolute, and on macOS they follow
+    /// `/tmp` through to `/private/tmp`. MCP callers pass workspace-relative
+    /// paths, so return that form when the file is inside the workspace.
+    fn tidy_issue_path_for_mcp(path: &str, cwd: &std::path::Path) -> String {
+        let cwd_abs = cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf());
+        let file = std::path::Path::new(path);
+        let file_abs = file.canonicalize().unwrap_or_else(|_| file.to_path_buf());
+        if let Ok(rel) = file_abs.strip_prefix(&cwd_abs) {
+            if rel.as_os_str().is_empty() {
+                return ".".to_string();
+            }
+            return rel.to_string_lossy().replace('\\', "/");
+        }
+        path.to_string()
+    }
+
     #[tool(
         description = "Scan files for missing final newline, mixed EOL, and trailing whitespace (CLI `tidy check`). Read-only: does not rewrite files. Canonical field is paths (array); singular path is accepted as an alias for one root. Empty issues is ok:true. Issues present still return a tool success with error_kind changes_detected. Example: {\"path\": \"src/\"}"
     )]
@@ -1347,7 +1363,11 @@ impl PatchloomService {
                         McpError::internal_error(msg, None)
                     }
                 })?;
-            let issues = collected.issues;
+            let cwd = svc.cwd().to_path_buf();
+            let mut issues = collected.issues;
+            for issue in &mut issues {
+                issue.path = Self::tidy_issue_path_for_mcp(&issue.path, &cwd);
+            }
             let dirty = !issues.is_empty();
             let mut payload = serde_json::json!({
                 "ok": !dirty,
