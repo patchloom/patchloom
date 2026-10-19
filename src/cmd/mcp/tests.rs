@@ -2292,3 +2292,81 @@ mod apply_patch_check_mcp_tests {
         client.cancel().await.unwrap();
     }
 }
+
+mod mcp_error_path_tests {
+    use super::*;
+
+    fn assert_relative_blob(err: &str) {
+        assert!(
+            err.contains("blob.bin") && !err.contains('/'),
+            "error must name blob.bin without an absolute path: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn replace_text_binary_error_uses_relative_path() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir.path().join("blob.bin"), b"hello\x00world").unwrap();
+        let client = spawn_test_client(dir.path().to_path_buf()).await;
+        let result = call_named_tool(
+            &client,
+            "replace_text",
+            serde_json::json!({"path": "blob.bin", "old": "hello", "new": "bye"}),
+        )
+        .await;
+        assert!(result.is_error.unwrap_or(false));
+        let val = tool_result_json(&result);
+        assert_eq!(val["error_kind"], "binary", "{val}");
+        assert_relative_blob(val["error"].as_str().unwrap_or(""));
+        assert_eq!(
+            std::fs::read(dir.path().join("blob.bin")).unwrap(),
+            b"hello\x00world"
+        );
+        client.cancel().await.unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn replace_text_binary_error_symlink_workspace_stays_relative() {
+        let real = tempfile::TempDir::new().unwrap();
+        std::fs::write(real.path().join("blob.bin"), b"hello\x00world").unwrap();
+        let link_dir = tempfile::TempDir::new().unwrap();
+        let link = link_dir.path().join("ws");
+        std::os::unix::fs::symlink(real.path(), &link).unwrap();
+        let client = spawn_test_client(link).await;
+        let result = call_named_tool(
+            &client,
+            "replace_text",
+            serde_json::json!({"path": "blob.bin", "old": "hello", "new": "bye"}),
+        )
+        .await;
+        let val = tool_result_json(&result);
+        assert_relative_blob(val["error"].as_str().unwrap_or(""));
+        client.cancel().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn batch_tidy_missing_file_error_uses_relative_path() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir.path().join("good.txt"), "hello \n").unwrap();
+        let client = spawn_test_client(dir.path().to_path_buf()).await;
+        let result = call_named_tool(
+            &client,
+            "batch_tidy",
+            serde_json::json!({"files": ["good.txt", "missing.txt"]}),
+        )
+        .await;
+        let val = tool_result_json(&result);
+        assert_eq!(val["error_kind"], "not_found", "{val}");
+        let err = val["error"].as_str().unwrap_or("");
+        assert!(
+            err.contains("missing.txt") && !err.contains('/'),
+            "error must name missing.txt without an absolute path: {err}"
+        );
+        assert_eq!(
+            std::fs::read(dir.path().join("good.txt")).unwrap(),
+            b"hello \n"
+        );
+        client.cancel().await.unwrap();
+    }
+}
