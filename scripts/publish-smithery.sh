@@ -65,13 +65,37 @@ curl -fsS -X PUT "https://api.smithery.ai/servers/${enc_name}" \
   -d "{}" >/dev/null 2>&1 || true
 
 echo "Uploading ${bundle} as ${qualified_name}..."
-resp="$(
-  curl -fsS -X PUT "https://api.smithery.ai/servers/${enc_name}/releases" \
+# Do not use curl -f here. A 403 body is the reason the upload failed
+# (for example "Missing required permission: servers:write"). -f drops
+# that body and the log only shows "curl: (22)".
+body_file="$(mktemp)"
+http_code="$(
+  curl -sS -o "$body_file" -w '%{http_code}' -X PUT \
+    "https://api.smithery.ai/servers/${enc_name}/releases" \
     -H "Authorization: Bearer ${SMITHERY_API_KEY}" \
     -H "Accept: application/json" \
     -F "payload=${payload}" \
     -F "bundle=@${bundle};type=application/octet-stream"
-)"
+)" || {
+  echo "Smithery release upload failed before a response" >&2
+  rm -f "$body_file"
+  exit 1
+}
+if [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ]; then
+  echo "Smithery release upload failed: HTTP ${http_code}" >&2
+  python3 - "$body_file" <<'PY'
+import re
+import sys
+
+text = open(sys.argv[1], encoding="utf-8", errors="replace").read()
+text = re.sub(r"smry_[A-Za-z0-9+/=._-]+", "[redacted]", text)
+print(text[:2000], file=sys.stderr)
+PY
+  rm -f "$body_file"
+  exit 1
+fi
+resp="$(cat "$body_file")"
+rm -f "$body_file"
 echo "$resp" | jq .
 
 status="$(echo "$resp" | jq -r '.status // empty')"
