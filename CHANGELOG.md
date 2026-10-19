@@ -11,6 +11,18 @@ present (applied to the GitHub Release body by the host job). Versioned
 sections below are managed by release-please.
 
 
+## [0.37.5](https://github.com/patchloom/patchloom/compare/patchloom-v0.37.4...patchloom-v0.37.5) (2026-10-19)
+
+
+### Bug Fixes
+
+* name MCP operation errors with the relative path ([#2701](https://github.com/patchloom/patchloom/issues/2701)) ([e8af5ea](https://github.com/patchloom/patchloom/commit/e8af5ea6f7b0622ce0594e061dd97384dabaa828)), closes [#2700](https://github.com/patchloom/patchloom/issues/2700)
+* name replace_all in SEARCH/REPLACE multi-match errors ([#2703](https://github.com/patchloom/patchloom/issues/2703)) ([0b24799](https://github.com/patchloom/patchloom/commit/0b24799b85a773f5a668d7c1f6d33e0b39634133)), closes [#2702](https://github.com/patchloom/patchloom/issues/2702)
+* print the Smithery upload error body ([#2693](https://github.com/patchloom/patchloom/issues/2693)) ([0ecc7f3](https://github.com/patchloom/patchloom/commit/0ecc7f303803a563167e258d95ee3e849597a43f))
+* refuse a regex replacement group that is not in the pattern ([#2695](https://github.com/patchloom/patchloom/issues/2695)) ([fe20b2f](https://github.com/patchloom/patchloom/commit/fe20b2f0954f79249079ab1fcad850de6ae1f164))
+* return workspace-relative tidy_check paths ([#2699](https://github.com/patchloom/patchloom/issues/2699)) ([c3bdb0c](https://github.com/patchloom/patchloom/commit/c3bdb0c6dbb6b71ef930d5872e0cfd364e441477)), closes [#2698](https://github.com/patchloom/patchloom/issues/2698)
+* tell MCP undo preview to set apply ([#2697](https://github.com/patchloom/patchloom/issues/2697)) ([8e9b295](https://github.com/patchloom/patchloom/commit/8e9b295978711c4029f86b0cc0df1a99f048ce22)), closes [#2696](https://github.com/patchloom/patchloom/issues/2696)
+
 ## [0.37.4](https://github.com/patchloom/patchloom/compare/patchloom-v0.37.3...patchloom-v0.37.4) (2026-10-18)
 
 
