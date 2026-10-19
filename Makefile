@@ -79,6 +79,7 @@ pr-bench-test: ## Unit tests for PR-gate bench fixture, cli-bench argv, and thre
 
 pack-mcpb-test: ## Unit tests for scripts/pack-mcpb.sh (VERSION override + pack stamp)
 	python3 scripts/test_pack_mcpb.py
+	python3 scripts/test_publish_smithery.py
 
 force-release-version-test: ## Unit tests for force_release_version.py (Release-As preferred path)
 	python3 scripts/test_force_release_version.py
