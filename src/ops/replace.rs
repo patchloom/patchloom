@@ -735,6 +735,89 @@ fn expand_regex_replacement(caps: &regex::Captures<'_>, replacement: &str) -> St
     expanded
 }
 
+/// First `$N`, `${N}`, `$name`, or `${name}` that [`regex::Captures::expand`]
+/// would replace with an empty string.
+///
+/// `$$` is a literal `$`, not a group. `$N` / `${N}` are unknown when
+/// `N >= re.captures_len()` (group 0 always exists). A name is unknown when
+/// it is absent from [`Regex::capture_names`]. Optional groups still count:
+/// this checks the pattern, not whether one match filled the group.
+/// `$1a` is the name `1a` (longest token), same as `expand`.
+pub(crate) fn unknown_regex_group(re: &Regex, replacement: &str) -> Option<String> {
+    let bytes = replacement.as_bytes();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        if bytes[i] != b'$' {
+            i += 1;
+            continue;
+        }
+        if bytes.get(i + 1).copied() == Some(b'$') {
+            i += 2;
+            continue;
+        }
+        let Some(end) = capture_ref_end(&replacement[i..]) else {
+            i += 1;
+            continue;
+        };
+        let token = &replacement[i..i + end];
+        if !regex_group_defined(re, token) {
+            return Some(token.to_string());
+        }
+        i += end;
+    }
+    None
+}
+
+/// Refuse before `replace_content` / `replace_whole_lines` expand a missing group.
+pub(crate) fn reject_unknown_regex_group(
+    re: &Regex,
+    replacement: &str,
+) -> Result<(), crate::exit::InvalidInputError> {
+    if let Some(token) = unknown_regex_group(re, replacement) {
+        return Err(crate::exit::InvalidInputError {
+            msg: format!("replace: replacement group {token} is not in the pattern"),
+        });
+    }
+    Ok(())
+}
+
+/// Byte length of a `$ref` or `${ref}` at the start of `replacement`.
+///
+/// Same split as `regex` expand: unclosed `${` is not a reference, and the
+/// unbraced name is the longest `[0-9A-Za-z_]+` run.
+fn capture_ref_end(replacement: &str) -> Option<usize> {
+    let rep = replacement.as_bytes();
+    if rep.len() <= 1 || rep[0] != b'$' {
+        return None;
+    }
+    if rep[1] == b'{' {
+        let close = rep.iter().skip(2).position(|&b| b == b'}')?;
+        return Some(close + 3);
+    }
+    let mut cap_end = 1usize;
+    while rep
+        .get(cap_end)
+        .copied()
+        .is_some_and(|b| b.is_ascii_alphanumeric() || b == b'_')
+    {
+        cap_end += 1;
+    }
+    (cap_end > 1).then_some(cap_end)
+}
+
+fn regex_group_defined(re: &Regex, token: &str) -> bool {
+    let inner = if let Some(braced) = token.strip_prefix("${") {
+        braced.strip_suffix('}').unwrap_or(braced)
+    } else {
+        token.strip_prefix('$').unwrap_or(token)
+    };
+    // `usize` parse matches regex-automata: `$10` is group 10, `$1a` is a name.
+    match inner.parse::<usize>() {
+        Ok(index) => index < re.captures_len(),
+        Err(_) => re.capture_names().any(|name| name == Some(inner)),
+    }
+}
+
 /// Count non-overlapping matches of `from` / `compiled_re` in `content`.
 ///
 /// Used for agent-honest errors when `--nth` is past the last match (the

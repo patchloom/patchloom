@@ -366,6 +366,27 @@ fn collect_replacements_with_list(
     let use_match_anchor = args.regex || args.case_insensitive || args.word_boundary;
     let regex_mode = args.regex;
     let case_insensitive = args.case_insensitive;
+    // Insert and command-position do not expand `$` groups. Whole-line does,
+    // via `caps.expand`, on the same replacement string as `replace_content`.
+    if !command_position
+        && insert_before.is_none()
+        && insert_after.is_none()
+        && let Some(re) = compiled_re.as_ref()
+    {
+        let replacement = crate::ops::replace::build_replacement_text(
+            &crate::ops::replace::ReplacementTextParams {
+                from,
+                to: &new_opt,
+                insert_before: &insert_before,
+                insert_after: &insert_after,
+                use_match_anchor,
+                regex_mode,
+                file_content: "",
+                case_insensitive,
+            },
+        );
+        crate::ops::replace::reject_unknown_regex_group(re, &replacement)?;
+    }
 
     let cwd_ref = &cwd;
     let explicit_files = replace_scan_is_explicit_files(args, global, &cwd);

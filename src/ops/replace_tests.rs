@@ -601,6 +601,27 @@ mod replace_tests {
         }
 
         #[test]
+        fn unknown_regex_group_rejects_missing_number() {
+            let re = regex::Regex::new("(a)").unwrap();
+            assert_eq!(unknown_regex_group(&re, "$9").as_deref(), Some("$9"));
+            assert_eq!(unknown_regex_group(&re, "$1"), None);
+            assert_eq!(unknown_regex_group(&re, "$$"), None);
+            // Optional group is declared even when a match leaves it unset.
+            let optional = regex::Regex::new("(a)?").unwrap();
+            assert_eq!(unknown_regex_group(&optional, "$1"), None);
+            assert_eq!(
+                unknown_regex_group(&re, "${name}").as_deref(),
+                Some("${name}")
+            );
+            let named = regex::Regex::new("(?<name>a)").unwrap();
+            assert_eq!(unknown_regex_group(&named, "${name}"), None);
+            assert_eq!(unknown_regex_group(&named, "$name"), None);
+            // `$$` is an escape. `$1ost` is the name `1ost`, not group 1.
+            assert_eq!(unknown_regex_group(&re, "$$9"), None);
+            assert_eq!(unknown_regex_group(&re, "$1ost").as_deref(), Some("$1ost"));
+        }
+
+        #[test]
         fn replace_content_regex_dollar_mid_file_cr() {
             let re = compile_replace_regex("end$", true, false, false, false)
                 .unwrap()
