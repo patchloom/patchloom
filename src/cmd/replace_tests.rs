@@ -1841,3 +1841,40 @@ fn refused_line_mentions_allow_absent_only_for_fuzzy_candidate() {
         "refused a.txt: exact_old_absent (use --allow-absent-old to apply fuzzy candidate)"
     );
 }
+
+#[test]
+fn regex_unknown_group_refuses_without_write() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("t.txt");
+    fs::write(&file, "xa").unwrap();
+    let path = file.to_string_lossy().into_owned();
+
+    for apply in [false, true] {
+        let mut args = make_args("(a)", "$9", vec![path.clone()]);
+        args.literal = false;
+        args.regex = true;
+        let mut global = GlobalFlags::test_default();
+        global.apply = apply;
+        global.json = true;
+        let Err(err) = collect_replacements(&args, &global) else {
+            panic!("apply={apply}: expected invalid_input");
+        };
+        assert_eq!(
+            crate::exit::classify_typed_error(&err),
+            Some(("invalid_input", exit::FAILURE)),
+            "apply={apply}: {err:#}"
+        );
+        assert!(
+            err.to_string()
+                .contains("replace: replacement group $9 is not in the pattern"),
+            "apply={apply}: {err}"
+        );
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::FAILURE, "apply={apply}");
+        assert_eq!(
+            fs::read_to_string(&file).unwrap(),
+            "xa",
+            "apply={apply} must not write"
+        );
+    }
+}

@@ -8,7 +8,7 @@ use crate::api::MatchMode;
 use crate::ops::replace::{
     InsertSide, ReplacementTextParams, build_replacement_text, compile_replace_regex,
     context_filtered_span_with_re, expand_match_anchor_template, normalize_line_insert,
-    replace_content, replace_insert_before, replace_whole_lines,
+    reject_unknown_regex_group, replace_content, replace_insert_before, replace_whole_lines,
 };
 use crate::plan::Operation;
 use crate::tx::output::merge_match_modes;
@@ -274,6 +274,13 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
             file_content: content,
             case_insensitive: *case_insensitive,
         });
+        if insert_before.is_none()
+            && insert_after.is_none()
+            && !*command_position
+            && let Some(re) = compiled_re.as_ref()
+        {
+            reject_unknown_regex_group(re, &replacement)?;
+        }
         let (replaced, match_count) = if *command_position {
             let to = new_text.as_deref().unwrap_or("");
             let (out, n) = crate::ops::shell_token::replace_command_position(content, old, to);
@@ -657,6 +664,13 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                 file_content: &content,
                 case_insensitive: *case_insensitive,
             });
+            if insert_before.is_none()
+                && insert_after.is_none()
+                && !*command_position
+                && let Some(re) = compiled_re.as_ref()
+            {
+                reject_unknown_regex_group(re, &replacement)?;
+            }
             let (replaced, match_count) = if *command_position {
                 let to = new_text.as_deref().unwrap_or("");
                 let (out, n) = crate::ops::shell_token::replace_command_position(&content, old, to);

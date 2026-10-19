@@ -261,6 +261,13 @@ fn replace_write(
             (start, end)
         });
 
+        if insert_before.is_none()
+            && insert_after.is_none()
+            && let Some(re) = compiled_re.as_ref()
+        {
+            ops::replace::reject_unknown_regex_group(re, &replacement)?;
+        }
+
         let (new_content, count) = if let Some(ib) = insert_before.as_deref() {
             ops::replace::replace_insert_before(
                 &original,
@@ -683,6 +690,13 @@ fn replace_in_content_inner(
     });
 
     let parsed_range = opts.range;
+
+    if opts.insert_before.is_none()
+        && opts.insert_after.is_none()
+        && let Some(re) = compiled_re.as_ref()
+    {
+        ops::replace::reject_unknown_regex_group(re, &replacement)?;
+    }
 
     let (new_content, count) = if let Some(ib) = opts.insert_before.as_deref() {
         ops::replace::replace_insert_before(
