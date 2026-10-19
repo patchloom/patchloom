@@ -903,7 +903,7 @@ pub fn run(mut args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 global.emit_json(&output)?;
                 if !global.quiet && !global.json && !global.jsonl {
                     eprintln!(
-                        "ambiguous match: pattern {:?} matches {} times in {}; tighten the pattern/anchor, use --nth (replace), unique: false (plan/MCP), or --allow-non-unique (apply-fragment CLI)",
+                        "ambiguous match: pattern {:?} matches {} times in {}; tighten the pattern/anchor, use --nth (replace), unique: false (plan/MCP), replace_all: true (MCP apply_patch), or --allow-non-unique (apply-fragment CLI)",
                         crate::fallback::truncate_str(&args.old, 60),
                         r.match_count,
                         r.display_path,

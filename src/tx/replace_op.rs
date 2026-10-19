@@ -318,7 +318,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
         if unique && match_count > 1 {
             return Err(crate::exit::AmbiguousError {
                 msg: format!(
-                    "ambiguous match: pattern {:?} matches {} times in {}; tighten the pattern/anchor, use --nth (replace), unique: false (plan/MCP), or --allow-non-unique (apply-fragment CLI)",
+                    "ambiguous match: pattern {:?} matches {} times in {}; tighten the pattern/anchor, use --nth (replace), unique: false (plan/MCP), replace_all: true (MCP apply_patch), or --allow-non-unique (apply-fragment CLI)",
                     crate::fallback::truncate_str(old, 60),
                     match_count,
                     p
@@ -363,7 +363,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                 }
                 return Err(crate::exit::AmbiguousError {
                     msg: format!(
-                        "ambiguous match: pattern {:?} matches {} times in {}; context did not select a unique occurrence (use --nth, stronger before/after-context (replace), unique: false (plan/MCP), or --allow-non-unique (apply-fragment CLI))",
+                        "ambiguous match: pattern {:?} matches {} times in {}; context did not select a unique occurrence (use --nth, stronger before/after-context (replace), unique: false (plan/MCP), replace_all: true (MCP apply_patch), or --allow-non-unique (apply-fragment CLI))",
                         crate::fallback::truncate_str(old, 60),
                         match_count,
                         p
@@ -712,7 +712,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                     .display();
                 return Err(crate::exit::AmbiguousError {
                     msg: format!(
-                        "ambiguous match: pattern {:?} matches {} times in {}; tighten the pattern/anchor, use --nth (replace), unique: false (plan/MCP), or --allow-non-unique (apply-fragment CLI)",
+                        "ambiguous match: pattern {:?} matches {} times in {}; tighten the pattern/anchor, use --nth (replace), unique: false (plan/MCP), replace_all: true (MCP apply_patch), or --allow-non-unique (apply-fragment CLI)",
                         crate::fallback::truncate_str(old, 60),
                         match_count,
                         rel
@@ -754,7 +754,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                         .display();
                     return Err(crate::exit::AmbiguousError {
                         msg: format!(
-                            "ambiguous match: pattern {:?} matches {} times in {}; context did not select a unique occurrence (use --nth, stronger before/after-context (replace), unique: false (plan/MCP), or --allow-non-unique (apply-fragment CLI))",
+                            "ambiguous match: pattern {:?} matches {} times in {}; context did not select a unique occurrence (use --nth, stronger before/after-context (replace), unique: false (plan/MCP), replace_all: true (MCP apply_patch), or --allow-non-unique (apply-fragment CLI))",
                             crate::fallback::truncate_str(old, 60),
                             match_count,
                             rel

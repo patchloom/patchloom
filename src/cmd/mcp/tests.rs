@@ -2370,3 +2370,28 @@ mod mcp_error_path_tests {
         client.cancel().await.unwrap();
     }
 }
+
+mod apply_patch_hint_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn search_replace_multi_match_names_replace_all() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir.path().join("two.txt"), "alpha\nmiddle\nalpha\n").unwrap();
+        let diff = "<<<<<<< SEARCH\ntwo.txt\n-------\nalpha\n=======\nbeta\n>>>>>>> REPLACE\n";
+        let client = spawn_test_client(dir.path().to_path_buf()).await;
+        let result =
+            call_named_tool(&client, "apply_patch", serde_json::json!({"diff": diff})).await;
+        let val = tool_result_json(&result);
+        let err = val["error"].as_str().unwrap_or("");
+        assert!(
+            err.contains("replace_all"),
+            "multi-match SEARCH/REPLACE must name replace_all: {err}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("two.txt")).unwrap(),
+            "alpha\nmiddle\nalpha\n"
+        );
+        client.cancel().await.unwrap();
+    }
+}
