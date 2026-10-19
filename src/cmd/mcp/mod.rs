@@ -592,8 +592,53 @@ fn execute_plan_validated(
     validate_plan_ops_size_limits(&plan.operations)?;
     let (code, json) = crate::cmd::tx::execute_plan_direct(plan, cwd, guard)
         .map_err(|e| McpError::internal_error(format!("plan execution failed: {e}"), None))?;
+    let json = relativize_workspace_paths_in_json(&json, cwd);
 
     exit_code_to_result(code, &json, "Operation completed successfully.")
+}
+
+/// The tx engine reports the canonical absolute path. MCP callers passed a
+/// workspace-relative path, and on macOS `/tmp` canonicalizes to `/private/tmp`.
+/// Strip that workspace prefix from string fields so the error names the path
+/// the caller sent.
+fn relativize_workspace_paths_in_json(json: &str, cwd: &std::path::Path) -> String {
+    let Ok(mut value) = serde_json::from_str::<serde_json::Value>(json) else {
+        return json.to_string();
+    };
+    let mut prefixes = vec![cwd.display().to_string()];
+    if let Ok(canon) = cwd.canonicalize() {
+        let canon = canon.display().to_string();
+        if canon != prefixes[0] {
+            prefixes.push(canon);
+        }
+    }
+    rewrite_workspace_prefixes(&mut value, &prefixes);
+    serde_json::to_string(&value).unwrap_or_else(|_| json.to_string())
+}
+
+fn rewrite_workspace_prefixes(value: &mut serde_json::Value, prefixes: &[String]) {
+    match value {
+        serde_json::Value::String(text) => {
+            for prefix in prefixes {
+                let with_slash = format!("{prefix}/");
+                let with_backslash = format!("{prefix}\\");
+                if text.contains(&with_slash) || text.contains(&with_backslash) {
+                    *text = text.replace(&with_slash, "").replace(&with_backslash, "");
+                }
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                rewrite_workspace_prefixes(item, prefixes);
+            }
+        }
+        serde_json::Value::Object(map) => {
+            for item in map.values_mut() {
+                rewrite_workspace_prefixes(item, prefixes);
+            }
+        }
+        _ => {}
+    }
 }
 
 /// Return a successful result with a "no results" message.
