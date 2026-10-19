@@ -2175,13 +2175,46 @@ mod tidy_check_mcp_tests {
         let issues = val["issues"].as_array().expect("issues");
         assert!(
             issues.iter().any(|i| {
-                i["issue"]
-                    .as_str()
-                    .is_some_and(|s| s.contains("missing final newline"))
+                i["path"] == "dirty.txt"
+                    && i["issue"]
+                        .as_str()
+                        .is_some_and(|s| s.contains("missing final newline"))
             }),
-            "{val}"
+            "issue path must stay workspace-relative, got {val}"
         );
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "no-nl");
+        client.cancel().await.unwrap();
+    }
+
+    /// macOS `/tmp` is a symlink to `/private/tmp`. Issue paths must still
+    /// be the workspace-relative name, not the canonical absolute path.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn tidy_check_symlink_workspace_keeps_relative_path() {
+        let real = tempfile::TempDir::new().unwrap();
+        std::fs::write(real.path().join("note.txt"), "hello \n").unwrap();
+        let link_dir = tempfile::TempDir::new().unwrap();
+        let link = link_dir.path().join("ws");
+        std::os::unix::fs::symlink(real.path(), &link).unwrap();
+        let client = spawn_test_client(link.clone()).await;
+        let result = call_named_tool(
+            &client,
+            "tidy_check",
+            serde_json::json!({ "path": "note.txt" }),
+        )
+        .await;
+        let val = tool_result_json(&result);
+        let issues = val["issues"].as_array().expect("issues");
+        assert!(
+            issues.iter().any(|i| i["path"] == "note.txt"),
+            "symlink workspace must not emit a canonical absolute path: {val}"
+        );
+        assert!(
+            issues
+                .iter()
+                .all(|i| !i["path"].as_str().unwrap_or("").starts_with('/')),
+            "{val}"
+        );
         client.cancel().await.unwrap();
     }
 
