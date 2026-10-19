@@ -106,6 +106,12 @@ pub(crate) struct UndoPreviewOutput {
 
 pub(crate) const UNDO_DRY_RUN_HINT: &str = "pass --apply to restore files (default is dry-run preview; exit 2 means changes would be made)";
 
+/// MCP `undo_restore` preview. The argument is `apply`, and the tool
+/// result is not a process exit code, so the CLI hint is the wrong shape.
+#[cfg(feature = "mcp")]
+pub(crate) const UNDO_MCP_DRY_RUN_HINT: &str =
+    "set apply to true to restore files (this preview did not write; applied stays false)";
+
 pub fn run(args: UndoArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     crate::verbose!(
         "undo: list={}, session={:?}, path={}, apply={}",

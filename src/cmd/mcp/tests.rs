@@ -1976,6 +1976,11 @@ mod undo_mcp_tests {
         let val = tool_result_json(&result);
         assert_eq!(val["applied"], false, "{val}");
         assert_eq!(val["error_kind"], "changes_detected");
+        let hint = val["hint"].as_str().unwrap_or("");
+        assert!(
+            hint.contains("apply") && !hint.contains("--apply") && !hint.contains("exit 2"),
+            "MCP preview hint must name the apply field, not the CLI flag: {hint}"
+        );
         assert_eq!(
             std::fs::read_to_string(dir.path().join("a.txt")).unwrap(),
             "changed"

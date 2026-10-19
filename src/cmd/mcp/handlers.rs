@@ -1450,7 +1450,7 @@ impl PatchloomService {
                     ok: true,
                     status: "changes_detected",
                     error_kind: Some("changes_detected"),
-                    hint: crate::cmd::undo::UNDO_DRY_RUN_HINT,
+                    hint: crate::cmd::undo::UNDO_MCP_DRY_RUN_HINT,
                     applied: false,
                     session: timestamp,
                     project_root: crate::cmd::undo::display_root(cwd, &backup_root),
