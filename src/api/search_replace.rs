@@ -189,6 +189,7 @@ mod tests {
     use super::*;
     use crate::api::{is_ambiguous, is_invalid_input, is_no_match, is_not_found};
     use crate::containment::PathGuard;
+    use crate::exit::is_parse_error;
 
     fn sr_block(path: &str, old: &str, new: &str) -> SearchReplaceBlock {
         SearchReplaceBlock {
@@ -552,5 +553,301 @@ fn new() {}
             std::fs::read_to_string(dir.path().join("code.rs")).unwrap(),
             "fn new() {}\n"
         );
+    }
+
+    fn two_foo_doc(dest_line: Option<&str>) -> String {
+        match dest_line {
+            Some(dest) => {
+                format!("<<<<<<< SEARCH\n{dest}\n-------\nfoo\n=======\nbar\n>>>>>>> REPLACE\n")
+            }
+            None => "<<<<<<< SEARCH\nfoo\n=======\nbar\n>>>>>>> REPLACE\n".to_string(),
+        }
+    }
+
+    #[test]
+    fn apply_patch_multi_match_names_library_replace_all() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("f.rs");
+        let original = "foo\nfoo\n";
+        std::fs::write(&dest, original).unwrap();
+        let err = crate::api::apply_patch(&dest, &two_foo_doc(None), ApplyMode::Apply, None)
+            .expect_err("unique apply_patch");
+        assert!(is_ambiguous(&err), "{err}");
+        let msg = err.to_string();
+        assert!(msg.contains("2 times"), "{msg}");
+        assert!(msg.contains("apply_search_replace_document"), "{msg}");
+        assert!(msg.contains("apply_patch_with_replace_all"), "{msg}");
+        assert!(msg.contains("apply_patch_file_with_replace_all"), "{msg}");
+        assert!(msg.contains("replace_all: true (MCP apply_patch)"), "{msg}");
+        assert!(msg.contains("unique: false (plan/MCP)"), "{msg}");
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), original);
+    }
+
+    #[test]
+    fn apply_patch_with_replace_all_updates_every_exact_match() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("f.rs");
+        std::fs::write(&dest, "foo\nfoo\n").unwrap();
+        let result = crate::api::apply_patch_with_replace_all(
+            &dest,
+            &two_foo_doc(None),
+            ApplyMode::Apply,
+            None,
+            true,
+        )
+        .expect("replace_all");
+        assert!(result.applied);
+        assert_eq!(result.match_count, 2);
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), "bar\nbar\n");
+    }
+
+    #[test]
+    fn apply_patch_with_replace_all_unique_match_updates_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("f.rs");
+        std::fs::write(&dest, "foo\n").unwrap();
+        let result = crate::api::apply_patch_with_replace_all(
+            &dest,
+            &two_foo_doc(None),
+            ApplyMode::Apply,
+            None,
+            true,
+        )
+        .expect("one match");
+        assert!(result.applied);
+        assert_eq!(result.match_count, 1);
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), "bar\n");
+    }
+
+    #[test]
+    fn apply_patch_with_replace_all_preview_does_not_write() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("f.rs");
+        let original = "foo\nfoo\n";
+        std::fs::write(&dest, original).unwrap();
+        let result = crate::api::apply_patch_with_replace_all(
+            &dest,
+            &two_foo_doc(None),
+            ApplyMode::Preview,
+            None,
+            true,
+        )
+        .expect("preview");
+        assert!(!result.applied);
+        assert!(result.changed);
+        assert_eq!(result.match_count, 2);
+        assert_eq!(result.new_content, "bar\nbar\n");
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), original);
+    }
+
+    #[test]
+    fn apply_patch_file_multi_match_does_not_write() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("f.rs");
+        let original = "foo\nfoo\n";
+        std::fs::write(&dest, original).unwrap();
+        let err = crate::api::apply_patch_file(
+            &two_foo_doc(Some("f.rs")),
+            dir.path(),
+            ApplyMode::Apply,
+            None,
+        )
+        .expect_err("unique apply_patch_file");
+        assert!(is_ambiguous(&err), "{err}");
+        assert!(
+            err.to_string()
+                .contains("apply_patch_file_with_replace_all"),
+            "{err}"
+        );
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), original);
+    }
+
+    #[test]
+    fn apply_patch_file_with_replace_all_updates_every_exact_match() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("f.rs");
+        std::fs::write(&dest, "foo\nfoo\n").unwrap();
+        let results = crate::api::apply_patch_file_with_replace_all(
+            &two_foo_doc(Some("f.rs")),
+            dir.path(),
+            ApplyMode::Apply,
+            None,
+            true,
+        )
+        .expect("replace_all");
+        assert_eq!(results.len(), 1);
+        assert!(results[0].applied);
+        assert_eq!(results[0].match_count, 2);
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), "bar\nbar\n");
+    }
+
+    #[test]
+    fn apply_patch_with_replace_all_rejects_unified_diff() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("f.txt");
+        let original = "old\n";
+        std::fs::write(&dest, original).unwrap();
+        let diff = "--- a/f.txt\n+++ b/f.txt\n@@ -1 +1 @@\n-old\n+new\n";
+        let err =
+            crate::api::apply_patch_with_replace_all(&dest, diff, ApplyMode::Apply, None, true)
+                .expect_err("unified");
+        assert!(is_invalid_input(&err), "{err}");
+        assert!(
+            err.to_string()
+                .contains("replace_all is only valid for SEARCH/REPLACE"),
+            "{err}"
+        );
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), original);
+        crate::api::apply_patch(&dest, diff, ApplyMode::Apply, None).expect("unique unified");
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), "new\n");
+    }
+
+    #[test]
+    fn apply_patch_file_with_replace_all_rejects_unified_diff() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("f.txt");
+        let original = "old\n";
+        std::fs::write(&dest, original).unwrap();
+        let diff = "--- a/f.txt\n+++ b/f.txt\n@@ -1 +1 @@\n-old\n+new\n";
+        let err = crate::api::apply_patch_file_with_replace_all(
+            diff,
+            dir.path(),
+            ApplyMode::Apply,
+            None,
+            true,
+        )
+        .expect_err("unified file");
+        assert!(is_invalid_input(&err), "{err}");
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), original);
+    }
+
+    #[test]
+    fn apply_patch_with_replace_all_rejects_begin_patch() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("f.rs");
+        let original = "old\n";
+        std::fs::write(&dest, original).unwrap();
+        let patch = "*** Begin Patch\n*** Update File: f.rs\n@@\n-old\n+new\n*** End Patch\n";
+        let err =
+            crate::api::apply_patch_with_replace_all(&dest, patch, ApplyMode::Apply, None, true)
+                .expect_err("begin");
+        assert!(is_invalid_input(&err), "{err}");
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), original);
+        let err = crate::api::apply_patch_file_with_replace_all(
+            patch,
+            dir.path(),
+            ApplyMode::Apply,
+            None,
+            true,
+        )
+        .expect_err("begin file");
+        assert!(is_invalid_input(&err), "{err}");
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), original);
+    }
+
+    /// Begin Patch that also contains `<<<<<<< SEARCH`. `replace_all: true`
+    /// is invalid_input before the mixed-grammar parse_error.
+    fn mixed_begin_and_search_replace() -> &'static str {
+        "\
+*** Begin Patch
+*** Update File: f.rs
+@@
+-old
++new
+<<<<<<< SEARCH
+foo
+=======
+bar
+>>>>>>> REPLACE
+*** End Patch
+"
+    }
+
+    fn assert_replace_all_refused(err: &anyhow::Error) {
+        assert!(is_invalid_input(err), "{err}");
+        assert!(!is_parse_error(err), "{err}");
+        assert!(
+            err.to_string()
+                .contains("replace_all is only valid for SEARCH/REPLACE"),
+            "{err}"
+        );
+    }
+
+    fn assert_mixed_grammar(err: &anyhow::Error) {
+        assert!(is_parse_error(err), "{err}");
+        assert!(!is_invalid_input(err), "{err}");
+        assert!(
+            err.to_string()
+                .contains("mixed Begin Patch and SEARCH/REPLACE"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn replace_all_on_mixed_begin_patch_is_invalid_input_before_parse() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("f.rs");
+        let original = "old\n";
+        std::fs::write(&dest, original).unwrap();
+        let patch = mixed_begin_and_search_replace();
+        let err =
+            crate::api::apply_patch_with_replace_all(&dest, patch, ApplyMode::Apply, None, true)
+                .expect_err("mixed replace_all");
+        assert_replace_all_refused(&err);
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), original);
+        let err = crate::api::apply_patch(&dest, patch, ApplyMode::Apply, None)
+            .expect_err("mixed unique");
+        assert_mixed_grammar(&err);
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), original);
+
+        let err = crate::api::apply_patch_file_with_replace_all(
+            patch,
+            dir.path(),
+            ApplyMode::Apply,
+            None,
+            true,
+        )
+        .expect_err("mixed file replace_all");
+        assert_replace_all_refused(&err);
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), original);
+        let err = crate::api::apply_patch_file(patch, dir.path(), ApplyMode::Apply, None)
+            .expect_err("mixed file unique");
+        assert_mixed_grammar(&err);
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), original);
+    }
+
+    #[test]
+    fn replace_all_on_garbage_is_invalid_input_before_parse() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("f.rs");
+        let original = "old\n";
+        std::fs::write(&dest, original).unwrap();
+        let patch = "not a patch\n";
+        let err =
+            crate::api::apply_patch_with_replace_all(&dest, patch, ApplyMode::Apply, None, true)
+                .expect_err("garbage replace_all");
+        assert_replace_all_refused(&err);
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), original);
+        let err = crate::api::apply_patch(&dest, patch, ApplyMode::Apply, None)
+            .expect_err("garbage unique");
+        assert!(is_parse_error(&err), "{err}");
+        assert!(!is_invalid_input(&err), "{err}");
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), original);
+
+        let err = crate::api::apply_patch_file_with_replace_all(
+            patch,
+            dir.path(),
+            ApplyMode::Apply,
+            None,
+            true,
+        )
+        .expect_err("garbage file replace_all");
+        assert_replace_all_refused(&err);
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), original);
+        let err = crate::api::apply_patch_file(patch, dir.path(), ApplyMode::Apply, None)
+            .expect_err("garbage file unique");
+        assert!(is_parse_error(&err), "{err}");
+        assert!(!is_invalid_input(&err), "{err}");
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), original);
     }
 }
