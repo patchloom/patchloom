@@ -11,13 +11,20 @@ use crate::plan::Operation;
 
 use super::{ApplyMode, EditResult};
 
+fn replace_all_only_for_search_replace() -> anyhow::Error {
+    anyhow::Error::new(crate::exit::InvalidInputError {
+        msg: crate::ops::search_replace::REPLACE_ALL_ONLY_FOR_SEARCH_REPLACE.into(),
+    })
+}
+
 /// Apply a unified diff patch to a file.
 ///
 /// Also detects Codex Begin Patch and SEARCH/REPLACE / DiffFenced.
-/// SEARCH/REPLACE is unique-only here (`replace_all` is CLI / MCP / plan).
-/// Dest paths come from the document (`-------` after SEARCH). Dest-less
-/// SEARCH/REPLACE applies to `path` (`file_hint`). `path` also supplies
-/// the workspace parent for relative dests.
+/// SEARCH/REPLACE is unique-only on this function. To update every exact
+/// match, call [`apply_patch_with_replace_all`]. Dest paths come from the
+/// document (`-------` after SEARCH). Dest-less SEARCH/REPLACE applies to
+/// `path` (`file_hint`). `path` also supplies the workspace parent for
+/// relative dests.
 ///
 /// Empty-hunk `+++ /dev/null` (git `deleted file mode`, no hunks) unlinks.
 /// A hunked delete applies the minus lines first. Leftover bytes rewrite
@@ -33,7 +40,25 @@ pub fn apply_patch(
     mode: ApplyMode,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
+    apply_patch_with_replace_all(path, patch_text, mode, guard, false)
+}
+
+/// Like [`apply_patch`], with `replace_all` for SEARCH/REPLACE documents.
+///
+/// `false` keeps unique apply: a block that matches twice is `ambiguous`
+/// and the file is unchanged. `true` updates every exact match. Unified
+/// diffs and Begin Patch reject `true` (`invalid_input`, no write).
+pub fn apply_patch_with_replace_all(
+    path: &Path,
+    patch_text: &str,
+    mode: ApplyMode,
+    guard: Option<&PathGuard>,
+    replace_all: bool,
+) -> anyhow::Result<EditResult> {
     if crate::ops::begin_patch::looks_like_begin_patch(patch_text) {
+        if replace_all {
+            return Err(replace_all_only_for_search_replace());
+        }
         if crate::ops::search_replace::has_search_replace_marker(patch_text) {
             return Err(anyhow::Error::new(crate::exit::ParseErrorError {
                 msg: "mixed Begin Patch and SEARCH/REPLACE grammar is not supported".into(),
@@ -71,7 +96,7 @@ pub fn apply_patch(
             cwd,
             &super::ApplySearchReplaceOptions {
                 file_hint: Some(abs.clone()),
-                ..super::ApplySearchReplaceOptions::default()
+                replace_all,
             },
             mode,
             guard,
@@ -81,6 +106,9 @@ pub fn apply_patch(
                 msg: "SEARCH/REPLACE contained no blocks".into(),
             })
         });
+    }
+    if replace_all {
+        return Err(replace_all_only_for_search_replace());
     }
     let op = Operation::PatchApply {
         diff: patch_text.into(),
@@ -360,6 +388,10 @@ fn deletion_after_hunks(
 
 /// Apply a multi-file patch. Returns one `EditResult` per affected file.
 ///
+/// SEARCH/REPLACE is unique-only on this function. To update every exact
+/// match, call [`apply_patch_file_with_replace_all`]. Dest-less blocks are
+/// `invalid_input` (no `file_hint` on this path).
+///
 /// Retains direct implementation since it produces multiple `EditResult`s
 /// (one per file), which the single-op `execute_as_edit_result` adapter
 /// doesn't support.
@@ -381,7 +413,24 @@ pub fn apply_patch_file(
     mode: ApplyMode,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<Vec<EditResult>> {
+    apply_patch_file_with_replace_all(patch_text, cwd, mode, guard, false)
+}
+
+/// Like [`apply_patch_file`], with `replace_all` for SEARCH/REPLACE documents.
+///
+/// `false` keeps unique apply. `true` updates every exact match. Unified
+/// diffs and Begin Patch reject `true` (`invalid_input`, no write).
+pub fn apply_patch_file_with_replace_all(
+    patch_text: &str,
+    cwd: &Path,
+    mode: ApplyMode,
+    guard: Option<&PathGuard>,
+    replace_all: bool,
+) -> anyhow::Result<Vec<EditResult>> {
     if crate::ops::begin_patch::looks_like_begin_patch(patch_text) {
+        if replace_all {
+            return Err(replace_all_only_for_search_replace());
+        }
         if crate::ops::search_replace::has_search_replace_marker(patch_text) {
             return Err(anyhow::Error::new(crate::exit::ParseErrorError {
                 msg: "mixed Begin Patch and SEARCH/REPLACE grammar is not supported".into(),
@@ -398,10 +447,16 @@ pub fn apply_patch_file(
         return super::apply_search_replace_document(
             patch_text,
             cwd,
-            &super::ApplySearchReplaceOptions::default(),
+            &super::ApplySearchReplaceOptions {
+                replace_all,
+                file_hint: None,
+            },
             mode,
             guard,
         );
+    }
+    if replace_all {
+        return Err(replace_all_only_for_search_replace());
     }
     let patch_files = crate::ops::patch::parse_patch(patch_text)
         .map_err(|e| crate::ops::search_replace::unified_parse_anyhow(patch_text, &e))?;

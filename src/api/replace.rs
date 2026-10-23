@@ -12,6 +12,16 @@ use crate::plan::Operation;
 
 use super::{ApplyMode, ContentEditResult, EditResult, MatchMode, ReplaceOptions};
 
+/// Recovery clause when a unique pattern matches more than once (#2704).
+///
+/// CLI and tx keep their own copies. This one also names the library
+/// functions, because `apply_patch` and `apply_patch_file` stay unique-only.
+/// Do not drop `unique: false` (#2703).
+const AMBIGUOUS_UNIQUE_ACTIONS: &str = "tighten the pattern/anchor, use --nth (replace), unique: false (plan/MCP), replace_all: true (MCP apply_patch), apply_search_replace_document or apply_patch_with_replace_all / apply_patch_file_with_replace_all (library), or --allow-non-unique (apply-fragment CLI)";
+
+/// Same recovery list when before/after context did not pick one match.
+const AMBIGUOUS_CONTEXT_ACTIONS: &str = "context did not select a unique occurrence (use --nth, stronger before/after-context (replace), unique: false (plan/MCP), replace_all: true (MCP apply_patch), apply_search_replace_document or apply_patch_with_replace_all / apply_patch_file_with_replace_all (library), or --allow-non-unique (apply-fragment CLI))";
+
 /// Replace text in a file using literal or regex matching.
 ///
 /// When `opts.insert_before` or `opts.insert_after` is set, the matched text
@@ -342,7 +352,7 @@ fn replace_write(
             }
             return Err(anyhow::Error::new(crate::exit::AmbiguousError {
                 msg: format!(
-                    "ambiguous match: pattern {:?} matches {} times; context did not select a unique occurrence (use --nth, stronger before/after-context (replace), unique: false (plan/MCP), replace_all: true (MCP apply_patch), or --allow-non-unique (apply-fragment CLI))",
+                    "ambiguous match: pattern {:?} matches {} times; {AMBIGUOUS_CONTEXT_ACTIONS}",
                     crate::fallback::truncate_str(&old, 60),
                     count
                 ),
@@ -358,7 +368,7 @@ fn replace_write(
         if unique && count > 1 {
             return Err(anyhow::Error::new(crate::exit::AmbiguousError {
                 msg: format!(
-                    "ambiguous match: pattern {old:?} matches {count} times; tighten the pattern/anchor, use --nth (replace), unique: false (plan/MCP), replace_all: true (MCP apply_patch), or --allow-non-unique (apply-fragment CLI)"
+                    "ambiguous match: pattern {old:?} matches {count} times; {AMBIGUOUS_UNIQUE_ACTIONS}"
                 ),
             }));
         }
@@ -790,7 +800,7 @@ fn replace_in_content_inner(
         }
         return Err(anyhow::Error::new(crate::exit::AmbiguousError {
             msg: format!(
-                "ambiguous match: pattern {:?} matches {} times; context did not select a unique occurrence (use --nth, stronger before/after-context (replace), unique: false (plan/MCP), replace_all: true (MCP apply_patch), or --allow-non-unique (apply-fragment CLI))",
+                "ambiguous match: pattern {:?} matches {} times; {AMBIGUOUS_CONTEXT_ACTIONS}",
                 crate::fallback::truncate_str(from, 60),
                 count
             ),
@@ -965,7 +975,7 @@ fn finalize_content_replace(
         return Err(crate::fallback::EditError::new(
             crate::fallback::EditErrorKind::AmbiguousTarget,
             format!(
-                "ambiguous match: pattern {:?} matches {} times; tighten the pattern/anchor, use --nth (replace), unique: false (plan/MCP), replace_all: true (MCP apply_patch), or --allow-non-unique (apply-fragment CLI)",
+                "ambiguous match: pattern {:?} matches {} times; {AMBIGUOUS_UNIQUE_ACTIONS}",
                 from, count
             ),
         )

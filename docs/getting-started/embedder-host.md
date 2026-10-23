@@ -117,11 +117,16 @@ soft miss (missing dest, `Ok` with no unlink), call
     Dest is the path above `-------` after SEARCH. Dest-less blocks apply
     to `apply_patch`'s path (`file_hint`); `apply_patch_file` still needs dest.
     Dest-deny with `looks_like_search_replace` + `search_replace_declared_paths`.
-    Default is unique: multi-match is `ambiguous` and does not write. Pass
-    `replace_all: true` (CLI `patch apply --replace-all`, MCP `replace_all`)
-    to update every exact match. Empty SEARCH is invalid input. Do not
+    Default is unique: multi-match is `ambiguous` and does not write.
+    That error names `apply_search_replace_document` and
+    `apply_patch_with_replace_all`. To update every exact match from Rust,
+    call `apply_patch_with_replace_all` or
+    `apply_patch_file_with_replace_all` with `replace_all: true`.
+    CLI is `patch apply --replace-all`. MCP `apply_patch` takes
+    `replace_all: true`. `true` on a unified diff or Begin Patch is
+    `invalid_input` and does not write. Empty SEARCH is invalid input. Do not
     `replacen(..., 1)` or raw `fs::write`, and do not flip
-    `ReplaceOptions.unique` on generic `replace_text` (#2220 / #2221).
+    `ReplaceOptions.unique` on generic `replace_text` (#2220 / #2221 / #2704).
 14. **AST query parse deadline:** `extract_symbols` / `extract_symbols_from_file`
     / `find_refs_in_source` / `find_refs_in_file` / `generate_map` /
     `compute_impact` / `extract_imports` / `extract_imports_from_file` /
