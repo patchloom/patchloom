@@ -274,6 +274,12 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
             // Same-parent + case-fold is not enough: on a case-sensitive
             // volume Keep.txt and keep.txt are two files (#2473).
             let case_only = crate::ops::file::is_case_only_rename(&src_path, &dst_path);
+            if crate::ops::file::symlink_points_at_dest(&src_path, &dst_path) {
+                return Err(crate::exit::InvalidInputError {
+                    msg: format!("cannot rename a symlink onto its own target: {from} -> {to}"),
+                }
+                .into());
+            }
             if !case_only
                 && (src_path == dst_path
                     || matches!(
