@@ -186,8 +186,8 @@ fn file_write(
             let content = content.clone();
             let path_str = display.clone();
             // Match CLI/tx: entry presence (dangling symlink is present) and
-            // require a regular file for content inject (#2087 dual-path).
-            use crate::ops::file::{PathEntryKind, classify_path_entry, path_entry_exists};
+            // require a followed file for content inject (#2087 dual-path).
+            use crate::ops::file::{is_followed_content_file, path_entry_exists};
             if !path_entry_exists(path) {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::NotFound,
@@ -195,7 +195,8 @@ fn file_write(
                 )
                 .into());
             }
-            if classify_path_entry(path) != PathEntryKind::RegularFile {
+            // Dangling/symlink-to-dir/FIFO/dir: content ops need a regular file.
+            if !is_followed_content_file(path) {
                 return Err(anyhow::Error::new(crate::exit::InvalidInputError {
                     msg: format!("target is not a file: {}", path.display()),
                 }));

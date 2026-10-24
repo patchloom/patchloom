@@ -1076,6 +1076,62 @@ fn append_dangling_symlink_is_invalid_input() {
 
 #[cfg(unix)]
 #[test]
+fn file_append_symlink_to_text_stages_appended_content() {
+    let dir = TempDir::new().unwrap();
+    let real = dir.path().join("real.txt");
+    std::fs::write(&real, "hello\n").unwrap();
+    let link = dir.path().join("link.txt");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    let mut f = TxStateFixture::new();
+    let mut tx = f.state(dir.path());
+    let op = Operation::FileAppend {
+        path: "link.txt".into(),
+        content: "X\n".into(),
+    };
+    execute_file_op(&op, &mut tx).expect("symlink append should stage");
+    let staged = f
+        .pending
+        .get(&link)
+        .map(|(_, current)| current.as_str())
+        .expect("staged content");
+    assert!(
+        staged.contains("hello") && staged.contains('X'),
+        "staged content must contain the append: {staged}"
+    );
+    assert_eq!(staged, "hello\nX\n");
+    assert_eq!(
+        std::fs::read(&real).unwrap(),
+        b"hello\n",
+        "execute only stages; target stays unchanged until commit"
+    );
+    assert!(link.symlink_metadata().unwrap().file_type().is_symlink());
+}
+
+#[cfg(unix)]
+#[test]
+fn file_append_symlink_to_nul_is_binary() {
+    let dir = TempDir::new().unwrap();
+    let real = dir.path().join("real.bin");
+    std::fs::write(&real, b"hello\x00world").unwrap();
+    let link = dir.path().join("link.bin");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    let mut f = TxStateFixture::new();
+    let mut tx = f.state(dir.path());
+    let op = Operation::FileAppend {
+        path: "link.bin".into(),
+        content: "Z\n".into(),
+    };
+    let err = execute_file_op(&op, &mut tx).unwrap_err();
+    assert!(
+        crate::exit::is_binary(&err),
+        "symlink to NUL must be binary, got: {err:#}"
+    );
+    assert!(f.pending.is_empty(), "must not stage a binary append");
+    assert_eq!(std::fs::read(&real).unwrap(), b"hello\x00world");
+}
+
+#[cfg(unix)]
+#[test]
 fn prepend_dangling_symlink_is_invalid_input() {
     let dir = TempDir::new().unwrap();
     let link = dir.path().join("dangling.txt");

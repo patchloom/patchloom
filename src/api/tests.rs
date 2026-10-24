@@ -9938,6 +9938,40 @@ fn file_append_binary_is_binary() {
     );
 }
 
+#[cfg(all(unix, any(feature = "cli", feature = "files")))]
+#[test]
+fn file_append_symlink_to_text_writes_target() {
+    let dir = TempDir::new().unwrap();
+    let real = dir.path().join("real.txt");
+    fs::write(&real, "hello\n").unwrap();
+    let link = dir.path().join("link.txt");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    file_append(&link, "X", ApplyMode::Apply, None).expect("symlink append");
+    let text = fs::read_to_string(&real).unwrap();
+    assert!(text.contains("hello"), "target must keep hello: {text}");
+    assert!(text.contains('X'), "target must contain X: {text}");
+    assert_eq!(text, "hello\nX");
+    assert!(link.symlink_metadata().unwrap().file_type().is_symlink());
+}
+
+#[cfg(all(unix, any(feature = "cli", feature = "files")))]
+#[test]
+fn file_append_symlink_to_nul_is_binary() {
+    let dir = TempDir::new().unwrap();
+    let real = dir.path().join("b.bin");
+    fs::write(&real, b"a\x00b").unwrap();
+    let link = dir.path().join("link.bin");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    let err = file_append(&link, "Z", ApplyMode::Apply, None).unwrap_err();
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::Binary),
+        "symlink to binary must peel Binary: {err}"
+    );
+    assert_eq!(crate::fallback::error_kind_str(&err), Some("binary"));
+    assert_eq!(fs::read(&real).unwrap(), b"a\x00b");
+}
+
 #[cfg(any(feature = "cli", feature = "files"))]
 #[test]
 fn file_rename_binary_path_only_succeeds() {

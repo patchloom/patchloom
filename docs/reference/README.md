@@ -301,7 +301,7 @@ These are the main entry points. If you are deciding between commands, start her
 
 - **What it does:** Appends content to the end of an existing file. If the file does not end with a newline, one is inserted before the appended content. Exactly one of `--content` or `--stdin` is required. Fails if the file does not exist (unlike `create`).
 - **Use when:** Adding tests, changelog entries, rules, or any content to the end of a file without reading the entire file to find a unique anchor.
-- **Failure behavior:** Missing file exits `1` with `error_kind: "not_found"`; bad flags or directory targets use `invalid_input` (JSON envelopes).
+- **Failure behavior:** Missing file exits `1` with `error_kind: "not_found"`; bad flags, a directory, a dangling symlink, a symlink to a directory, or a FIFO use `invalid_input` (JSON envelopes). A symlink to a regular text file is followed and the target is updated. A symlink to a binary file (NUL in the first 8 KiB) is `error_kind: "binary"` and is not written.
 - **Prefer instead:** Use `replace` when the insertion point is not the end of the file.
 - **Related:** `create`, `prepend`, `tx file.append`
 
@@ -1323,14 +1323,14 @@ The operations below are the building blocks inside `operations`.
 <!-- ref:tx-op:file.append -->
 ### `file.append`
 
-- **What it does:** Appends content to the end of an existing file inside a transaction. Inserts a newline separator if the file does not end with one.
+- **What it does:** Appends content to the end of an existing file inside a transaction. Inserts a newline separator if the file does not end with one. A symlink to a regular file is followed. A dangling symlink is `invalid_input`. A binary target, including through a symlink, is `binary` and is not written.
 - **Use when:** Adding content to a file must be atomic with other operations in the same plan. Fails if the file does not exist.
 - **Related:** top level `append`
 
 <!-- ref:tx-op:file.prepend -->
 ### `file.prepend`
 
-- **What it does:** Prepends content to the beginning of an existing file inside a transaction.
+- **What it does:** Prepends content to the beginning of an existing file inside a transaction. Symlink and binary rules match `file.append`.
 - **Use when:** Adding a header, license, or shebang line must be atomic with other operations in the same plan. Fails if the file does not exist.
 - **Related:** `file.append`, top level `append`
 
