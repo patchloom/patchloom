@@ -277,6 +277,26 @@ mod basic {
         assert_eq!(*found, json!(20));
     }
 
+    /// `a` is a number. `doc set a.b.c` must not say that number lives at key `b`.
+    #[test]
+    fn set_at_path_through_number_does_not_blame_the_child_key() {
+        let mut val = json!({"a": 1});
+        let err = set_at_path(
+            &mut val,
+            &crate::selector::parse("a.b.c").unwrap(),
+            json!(9),
+        )
+        .unwrap_err();
+        let msg = err.to_string();
+        assert!(crate::exit::is_type_error(&err), "{msg}");
+        assert!(msg.contains("number"), "{msg}");
+        assert!(
+            !msg.contains("at key 'b'"),
+            "must not say the number is at key b: {msg}"
+        );
+        assert_eq!(val, json!({"a": 1}));
+    }
+
     #[test]
     fn deep_merge_objects() {
         let mut base = json!({"a": 1, "b": {"c": 2}});
