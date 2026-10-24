@@ -11,6 +11,16 @@ present (applied to the GitHub Release body by the host job). Versioned
 sections below are managed by release-please.
 
 
+## [0.37.6](https://github.com/patchloom/patchloom/compare/patchloom-v0.37.5...patchloom-v0.37.6) (2026-10-24)
+
+
+### Bug Fixes
+
+* agree SEARCH/REPLACE dest rules across check, apply, and apply_patch ([#2711](https://github.com/patchloom/patchloom/issues/2711)) ([c3e526c](https://github.com/patchloom/patchloom/commit/c3e526c3828997c220a9f93ba6d2dff505640dad))
+* classify contain patch reads and quote YAML 0b strings ([#2712](https://github.com/patchloom/patchloom/issues/2712)) ([13169d7](https://github.com/patchloom/patchloom/commit/13169d75c164c17af823be24575bb255fbc9cea9))
+* let library apply_patch pass replace_all ([#2709](https://github.com/patchloom/patchloom/issues/2709)) ([b6191e6](https://github.com/patchloom/patchloom/commit/b6191e65a486066c34c88fb0ba4f1f659b57d053))
+* upgrade rustls-webpki and webpki-root-certs ([#2707](https://github.com/patchloom/patchloom/issues/2707)) ([5444306](https://github.com/patchloom/patchloom/commit/54443066e64fe8363a1a633330ee6480f8f2a0e3))
+
 ## [0.37.5](https://github.com/patchloom/patchloom/compare/patchloom-v0.37.4...patchloom-v0.37.5) (2026-10-19)
 
 
