@@ -215,6 +215,7 @@ pub fn serialize_value(value: &serde_json::Value, format: &FileFormat) -> anyhow
             // noyalib omits the trailing newline serde_yaml_ng used to emit.
             // Document writes keep a final newline (#2667).
             let mut s = serde_yaml_ng::to_string(value)?;
+            s = yaml_splice::quote_plain_yaml11_binary(&s);
             if !s.ends_with('\n') {
                 s.push('\n');
             }

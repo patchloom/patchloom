@@ -87,6 +87,8 @@ impl From<OnStaleCli> for OnStale {
 enum DiffReadError {
     NoSource,
     IoError(String, std::io::Error),
+    /// `--contain` rejected the patch path. Not a malformed diff.
+    GuardRejected(String),
     StdinError(std::io::Error),
     /// Diff bytes are binary (#1896 / #1963).
     Binary(String),
@@ -136,9 +138,18 @@ fn read_diff_input(
             ))
         } else {
             // Relative patch paths resolve under --cwd (parity with `tx` / `batch`).
-            let full = global
-                .resolve_user_path(path)
-                .map_err(|e| DiffReadError::IoError(path.clone(), std::io::Error::other(e)))?;
+            let full = match global.resolve_user_path(path) {
+                Ok(full) => full,
+                Err(e) if crate::fallback::is_guard_rejected(&e) => {
+                    return Err(DiffReadError::GuardRejected(e.to_string()));
+                }
+                Err(e) => {
+                    return Err(DiffReadError::IoError(
+                        path.clone(),
+                        std::io::Error::other(e),
+                    ));
+                }
+            };
             let display = full.display().to_string();
             // Strict sole-path for the patch file itself (#1896).
             crate::files::load_text_strict(&full, &display).map_err(|e| {
@@ -155,6 +166,8 @@ fn read_diff_input(
                         // input (agents still get a fail-closed read error).
                         DiffReadError::IoError(display.clone(), std::io::Error::other(msg))
                     }
+                } else if crate::fallback::is_guard_rejected(&e) {
+                    DiffReadError::GuardRejected(e.to_string())
                 } else if crate::exit::is_io_not_found(&e) {
                     DiffReadError::IoError(
                         display.clone(),
@@ -613,6 +626,12 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 "parse_error",
             )?;
             return Ok(exit::PARSE_ERROR);
+        }
+        Err(DiffReadError::GuardRejected(msg)) => {
+            // Containment refused the patch path. Agents branch on
+            // error_kind; parse_error means the diff text is bad.
+            emit_error(global, &format!("patch: {msg}"), "guard_rejected")?;
+            return Ok(exit::FAILURE);
         }
         Err(DiffReadError::IoError(path, e)) => {
             // Missing patch file is not a parse failure; agents branch on

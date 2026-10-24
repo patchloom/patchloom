@@ -219,6 +219,51 @@ fn test_patch_apply_json_parse_error_returns_error_object() {
     assert_patch_apply_error_object(&output, 4, "patch: parse error:");
 }
 
+/// A patch path outside `--contain` is guard_rejected, not parse_error.
+#[test]
+fn test_patch_check_outside_file_under_contain_is_guard_rejected() {
+    let root = TempDir::new().unwrap();
+    let proj = root.path().join("proj");
+    fs::create_dir(&proj).unwrap();
+    fs::write(proj.join("f.txt"), "old\n").unwrap();
+    let patch_file = root.path().join("outside.sr");
+    fs::write(
+        &patch_file,
+        "<<<<<<< SEARCH\nf.txt\n-------\nold\n=======\nnew\n>>>>>>> REPLACE\n",
+    )
+    .unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--contain")
+        .arg("--cwd")
+        .arg(&proj)
+        .arg("--json")
+        .arg("patch")
+        .arg("check")
+        .arg(&patch_file)
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(v["ok"], false, "{v}");
+    assert_eq!(v["error_kind"], "guard_rejected", "{v}");
+    assert_ne!(v["error_kind"], "parse_error", "{v}");
+    assert!(
+        v["error"]
+            .as_str()
+            .is_some_and(|e| e.contains("guard_rejected") && e.contains("outside.sr")),
+        "{v}"
+    );
+    assert_eq!(fs::read_to_string(proj.join("f.txt")).unwrap(), "old\n");
+}
+
 /// Missing patch file must be not_found (exit 1), not parse_error (exit 4).
 /// Agents branch on error_kind; parse_error implies malformed content.
 #[test]
