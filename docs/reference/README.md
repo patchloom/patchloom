@@ -377,9 +377,9 @@ These are the main entry points. If you are deciding between commands, start her
 <!-- ref:command:read -->
 ## `read`
 
-- **What it does:** Prints the contents of one or more files, optionally restricted to a line range. `--lines` uses the same numbering as `search` (LF, CRLF, and a lone CR). Selected slices are joined with LF. Multiple files get `==> path <==` separators in text mode, a JSON array in `--json` mode, and one object per line in `--jsonl` mode. If at least one requested file is read successfully, the command still exits successfully and reports errors only for the missing files.
+- **What it does:** Prints the contents of one or more files, optionally restricted to a line range. `--lines` uses the same numbering as `search` (LF, CRLF, and a lone CR). Selected slices are joined with LF. Multiple files get `==> path <==` separators in text mode, a JSON array in `--json` mode, and one object per line in `--jsonl` mode.
 - **Use when:** An agent needs to inspect one or several files before deciding on an edit. For AI agents, native read_file tools are typically faster for single-file reads.
-- **Failure behavior:** Invalid `--lines` exits `1` with `error_kind: "invalid_input"`. When every path fails, exit `1` with `error_kind: "not_found"`. Partial success still exits `1` after emitting successful reads.
+- **Failure behavior:** Invalid `--lines` exits `1` with `error_kind: "invalid_input"`. When every path is missing, exit `1` with `error_kind: "not_found"`. When every explicit `--lines` range is past EOF, exit `3` with `error_kind: "no_matches"`. When every path is a directory or other non-file, exit `1` with `error_kind: "invalid_input"`. A mix of failures exits `1` and prefers `binary`, then `invalid_encoding`, then `invalid_input`, otherwise `not_found`. Partial success still exits `1` after emitting the successful reads. Those errors are not limited to missing files.
 - **Prefer instead:** Use `search` when you need pattern matching, or `doc get` when the file is structured and you want a single value.
 
 ## Library API

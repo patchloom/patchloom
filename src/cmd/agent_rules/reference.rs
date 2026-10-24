@@ -90,7 +90,7 @@ pub(crate) fn append_reference(out: &mut String, show_cli: bool) {
              **JSON `error_kind` (exit 1):** Prefer branching on kind, not English text. File ops set \
              `already_exists` (create/rename without force, create race), `not_found` (delete/append/prepend/rename missing source, \
              missing `--files-from`/batch input, missing plan file, missing git blob for AST, \
-             `read` when every path fails, or library/CLI/MCP `doc get`/`has`/`keys`/`len` / `doc_query` on a missing file), \
+             `read` when every path is missing, or library/CLI/MCP `doc get`/`has`/`keys`/`len` / `doc_query` on a missing file), \
              `invalid_input` (bad flags, non-file target, malformed `read --lines` \
              (0-based or end before start; past-EOF range is `no_matches` exit 3), replace `--nth` past the last \
              match with live match count in the message, \
