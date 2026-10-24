@@ -428,7 +428,11 @@ pub fn needs_yaml_quoting(s: &str) -> bool {
         return true;
     }
     // YAML 1.1 type-flips these unquoted strings (#2487).
-    if is_yaml11_underscore_int(s) || is_yaml11_sexagesimal(s) || is_yaml11_timestamp(s) {
+    if is_yaml11_underscore_int(s)
+        || is_yaml11_sexagesimal(s)
+        || is_yaml11_timestamp(s)
+        || is_yaml11_base_int(s)
+    {
         return true;
     }
     // Trailing colon makes the value look like a mapping key (e.g., "host:").
@@ -446,6 +450,140 @@ pub fn needs_yaml_quoting(s: &str) -> bool {
         || s.contains(": ")
         || s.contains(" #")
         || s.contains('\n')
+}
+
+/// YAML 1.1 reads unquoted `0b0`, `0o7`, and `0x10` as integers.
+fn is_yaml11_base_int(s: &str) -> bool {
+    let t = s.strip_prefix(['+', '-']).unwrap_or(s);
+    let (rest, kind) = if let Some(r) = t.strip_prefix("0b").or_else(|| t.strip_prefix("0B")) {
+        (r, b'b')
+    } else if let Some(r) = t.strip_prefix("0o").or_else(|| t.strip_prefix("0O")) {
+        (r, b'o')
+    } else if let Some(r) = t.strip_prefix("0x").or_else(|| t.strip_prefix("0X")) {
+        (r, b'x')
+    } else {
+        return false;
+    };
+    if rest.is_empty() {
+        return false;
+    }
+    let mut digits = 0usize;
+    for c in rest.chars() {
+        if c == '_' {
+            continue;
+        }
+        let ok = match kind {
+            b'b' => c == '0' || c == '1',
+            b'o' => c.is_ascii_digit() && c <= '7',
+            _ => c.is_ascii_hexdigit(),
+        };
+        if !ok {
+            return false;
+        }
+        digits += 1;
+    }
+    digits > 0
+}
+
+/// `serde_yaml_ng` emits a Rust string `0b0` as a plain scalar. Our reader
+/// treats that as YAML 1.1 binary integer 0. Quote those tokens.
+pub(crate) fn quote_plain_yaml11_binary(yaml: &str) -> String {
+    let b = yaml.as_bytes();
+    let mut out = String::with_capacity(yaml.len());
+    let mut i = 0;
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut escaped = false;
+    while i < b.len() {
+        let c = b[i];
+        if c >= 128 {
+            let ch = yaml[i..].chars().next().expect("utf-8 boundary");
+            out.push(ch);
+            i += ch.len_utf8();
+            continue;
+        }
+        if in_double {
+            out.push(c as char);
+            if escaped {
+                escaped = false;
+            } else if c == b'\\' {
+                escaped = true;
+            } else if c == b'"' {
+                in_double = false;
+            }
+            i += 1;
+            continue;
+        }
+        if in_single {
+            out.push(c as char);
+            if c == b'\'' && i + 1 < b.len() && b[i + 1] == b'\'' {
+                out.push('\'');
+                i += 2;
+                continue;
+            }
+            if c == b'\'' {
+                in_single = false;
+            }
+            i += 1;
+            continue;
+        }
+        if c == b'"' {
+            in_double = true;
+            out.push('"');
+            i += 1;
+            continue;
+        }
+        if c == b'\'' {
+            in_single = true;
+            out.push('\'');
+            i += 1;
+            continue;
+        }
+        if matches!(c, b'0' | b'+' | b'-')
+            && (i == 0 || is_yaml_token_boundary(b[i - 1]))
+            && let Some(len) = plain_binary_len(&yaml[i..])
+        {
+            let end = i + len;
+            if end >= b.len() || is_yaml_token_boundary(b[end]) || b[end] == b':' {
+                out.push('\'');
+                out.push_str(&yaml[i..end]);
+                out.push('\'');
+                i = end;
+                continue;
+            }
+        }
+        out.push(c as char);
+        i += 1;
+    }
+    out
+}
+
+fn is_yaml_token_boundary(c: u8) -> bool {
+    c.is_ascii_whitespace() || matches!(c, b':' | b'[' | b'{' | b',' | b']' | b'}' | b'-')
+}
+
+fn plain_binary_len(s: &str) -> Option<usize> {
+    let b = s.as_bytes();
+    let mut i = 0;
+    if matches!(b.first(), Some(b'+' | b'-')) {
+        i = 1;
+    }
+    if i + 2 > b.len() || b[i] != b'0' || !matches!(b[i + 1], b'b' | b'B') {
+        return None;
+    }
+    i += 2;
+    let mut digits = 0usize;
+    while i < b.len() {
+        match b[i] {
+            b'_' => i += 1,
+            b'0' | b'1' => {
+                digits += 1;
+                i += 1;
+            }
+            _ => break,
+        }
+    }
+    if digits == 0 { None } else { Some(i) }
 }
 
 fn is_yaml11_underscore_int(s: &str) -> bool {
@@ -601,6 +739,19 @@ mod tests {
             !needs_yaml_quoting("hello"),
             "plain string does not need quoting"
         );
+    }
+
+    #[test]
+    fn needs_yaml_quoting_base_ints() {
+        assert!(needs_yaml_quoting("0b0"));
+        assert!(needs_yaml_quoting("0B1"));
+        assert!(needs_yaml_quoting("-0b1"));
+        assert!(needs_yaml_quoting("0o7"));
+        assert!(needs_yaml_quoting("0x10"));
+        assert!(needs_yaml_quoting("0x10_A"));
+        assert!(!needs_yaml_quoting("0b"));
+        assert!(!needs_yaml_quoting("0b2"));
+        assert!(!needs_yaml_quoting("box"));
     }
 
     #[test]

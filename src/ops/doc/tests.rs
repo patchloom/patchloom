@@ -3798,6 +3798,15 @@ mod regression {
 
     // ── gap closing regressions (#824/#825 style fidelity) ───────────
     #[test]
+    fn yaml_string_that_looks_like_base_int_round_trips() {
+        // macOS proptest seed: Array [Object {"A": String("0b0")}] became 0.
+        let value = json!([{"A": "0b0"}, "0x10", "0o7"]);
+        let serialized = serialize_value(&value, &FileFormat::Yaml).unwrap();
+        let reparsed = parse_doc(&serialized, &FileFormat::Yaml).unwrap();
+        assert_eq!(value, reparsed, "{serialized}");
+    }
+
+    #[test]
     fn yaml_deep_nested_object_creation() {
         // Deep (2+) new intermediates: in-memory always correct.
         // Preserving serialize may use fallback for some >1-level cases
