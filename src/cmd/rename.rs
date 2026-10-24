@@ -100,6 +100,14 @@ pub fn run(mut args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     // when only the case differs so users can change filename casing (#1167).
     // Use safe_canonicalize (dunce) so Windows UNC prefixes do not diverge.
     let is_case_only_change = crate::ops::file::is_case_only_rename(&src, &dst);
+    if crate::ops::file::symlink_points_at_dest(&src, &dst) {
+        let msg = format!(
+            "cannot rename a symlink onto its own target: {} -> {}",
+            args.from, args.to
+        );
+        global.emit_error_json_kind(Some("invalid_input"), &msg)?;
+        return Ok(exit::FAILURE);
+    }
     if !is_case_only_change
         && (src == dst
             || matches!(

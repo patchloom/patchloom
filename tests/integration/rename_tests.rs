@@ -121,6 +121,41 @@ fn test_rename_different_path_string_is_noop() {
     assert_eq!(fs::read_to_string(&file).unwrap(), "content\n");
 }
 
+#[cfg(unix)]
+#[test]
+fn test_rename_symlink_onto_its_target_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    let real = dir.path().join("real.txt");
+    fs::write(&real, "keep\n").unwrap();
+    let link = dir.path().join("link");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+
+    for extra in [vec![], vec!["--apply"], vec!["--apply", "--force"]] {
+        let mut cmd = Command::cargo_bin("patchloom").unwrap();
+        cmd.args(["--json", "rename"]).arg(&link).arg(&real);
+        for flag in &extra {
+            cmd.arg(*flag);
+        }
+        let output = cmd.output().unwrap();
+        assert_eq!(
+            output.status.code(),
+            Some(1),
+            "flags {extra:?} stderr={}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(parsed["error_kind"], "invalid_input", "{parsed}");
+        assert!(
+            parsed["error"]
+                .as_str()
+                .is_some_and(|e| e.contains("symlink") && e.contains("own target")),
+            "{parsed}"
+        );
+    }
+    assert_eq!(fs::read_to_string(&real).unwrap(), "keep\n");
+    assert!(link.symlink_metadata().unwrap().file_type().is_symlink());
+}
+
 #[test]
 fn test_rename_force_overwrites() {
     let dir = TempDir::new().unwrap();

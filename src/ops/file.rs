@@ -756,6 +756,29 @@ pub fn refuse_symlink_destination(
 /// Cross-device `std::fs::copy` follows a dest symlink and would
 /// overwrite the target. Rename refuses dest symlink (and FIFO /
 /// socket / device) on every device so policy matches force-create.
+/// True when `src` is a symlink whose target is `dst`.
+///
+/// `./file` and `file` are the same regular entry and are not this.
+/// Renaming the link onto that target would replace the file with the link.
+pub fn symlink_points_at_dest(src: &Path, dst: &Path) -> bool {
+    if src == dst {
+        return false;
+    }
+    let Ok(meta) = std::fs::symlink_metadata(src) else {
+        return false;
+    };
+    if !meta.file_type().is_symlink() {
+        return false;
+    }
+    match (
+        crate::containment::safe_canonicalize(src),
+        crate::containment::safe_canonicalize(dst),
+    ) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => false,
+    }
+}
+
 pub fn refuse_non_regular_destination(
     path: &Path,
     display: &str,
