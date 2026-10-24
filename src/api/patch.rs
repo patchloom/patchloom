@@ -91,6 +91,25 @@ pub fn apply_patch_with_replace_all(
             )
         })?;
         let cwd = abs.parent().unwrap_or_else(|| Path::new("."));
+        let blocks = crate::ops::search_replace::parse_search_replace_document(patch_text)
+            .map_err(|e| anyhow::Error::new(crate::exit::ParseErrorError { msg: e.message }))?;
+        for block in &blocks {
+            let resolved = super::search_replace::resolve_search_replace_path(
+                cwd,
+                &block.path,
+                Some(&abs),
+                guard,
+            )?;
+            if resolved != abs {
+                return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                    msg: format!(
+                        "apply_patch applies one path ({}); this document also names {}. Use apply_patch_file",
+                        path.display(),
+                        block.path
+                    ),
+                }));
+            }
+        }
         let results = super::apply_search_replace_document(
             patch_text,
             cwd,
