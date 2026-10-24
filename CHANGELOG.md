@@ -11,6 +11,21 @@ present (applied to the GitHub Release body by the host job). Versioned
 sections below are managed by release-please.
 
 
+## [0.37.6](https://github.com/patchloom/patchloom/compare/patchloom-v0.37.5...patchloom-v0.37.6) (2026-10-24)
+
+
+### Bug Fixes
+
+* agree SEARCH/REPLACE dest rules across check, apply, and apply_patch ([#2711](https://github.com/patchloom/patchloom/issues/2711)) ([c3e526c](https://github.com/patchloom/patchloom/commit/c3e526c3828997c220a9f93ba6d2dff505640dad))
+* classify contain patch reads and quote YAML 0b strings ([#2712](https://github.com/patchloom/patchloom/issues/2712)) ([13169d7](https://github.com/patchloom/patchloom/commit/13169d75c164c17af823be24575bb255fbc9cea9))
+* follow file symlinks on append and prepend ([#2718](https://github.com/patchloom/patchloom/issues/2718)) ([5168a1d](https://github.com/patchloom/patchloom/commit/5168a1db863ca61622a5aaa4a20b4ffba77785c0))
+* index multiline search lines once per file ([#2717](https://github.com/patchloom/patchloom/issues/2717)) ([e9725db](https://github.com/patchloom/patchloom/commit/e9725dbfbfbe4838d5effcce2b7c28b5998d21c2))
+* let library apply_patch pass replace_all ([#2709](https://github.com/patchloom/patchloom/issues/2709)) ([b6191e6](https://github.com/patchloom/patchloom/commit/b6191e65a486066c34c88fb0ba4f1f659b57d053))
+* name the parent when doc set cannot descend into a scalar ([#2719](https://github.com/patchloom/patchloom/issues/2719)) ([093a522](https://github.com/patchloom/patchloom/commit/093a5228bf4c701e27e6558873cc8a9e9b3b5b47))
+* refuse renaming a symlink onto its own target ([#2716](https://github.com/patchloom/patchloom/issues/2716)) ([c604b3d](https://github.com/patchloom/patchloom/commit/c604b3dd3b324d80a9f4cc3e3656e99b96e9b5f2))
+* state the real read failure kinds ([#2715](https://github.com/patchloom/patchloom/issues/2715)) ([0dd63ef](https://github.com/patchloom/patchloom/commit/0dd63ef0580f77287536d50356566288fdcd4a6a))
+* upgrade rustls-webpki and webpki-root-certs ([#2707](https://github.com/patchloom/patchloom/issues/2707)) ([5444306](https://github.com/patchloom/patchloom/commit/54443066e64fe8363a1a633330ee6480f8f2a0e3))
+
 ## [0.37.5](https://github.com/patchloom/patchloom/compare/patchloom-v0.37.4...patchloom-v0.37.5) (2026-10-19)
 
 
