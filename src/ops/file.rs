@@ -187,6 +187,31 @@ impl LineIndex {
             Err(i) => i.saturating_sub(1),
         }
     }
+
+    /// 1-based line and column, same numbers as [`text_line_column`].
+    ///
+    /// CRLF records the LF as the line start. The column origin is the
+    /// byte after that LF, which is what `rfind` reports.
+    pub fn line_and_column(&self, content: &str, offset: usize) -> (usize, usize) {
+        let offset = offset.min(content.len());
+        let line = self.line_index(offset);
+        let recorded = self.starts.get(line).copied().unwrap_or(0);
+        let line_start = crlf_content_start(content, recorded);
+        (line + 1, offset.saturating_sub(line_start) + 1)
+    }
+}
+
+fn crlf_content_start(content: &str, recorded: usize) -> usize {
+    let bytes = content.as_bytes();
+    if recorded > 0
+        && recorded < bytes.len()
+        && bytes[recorded] == b'\n'
+        && bytes[recorded - 1] == b'\r'
+    {
+        recorded + 1
+    } else {
+        recorded
+    }
 }
 
 /// 0-based `text_lines` index of the line that contains `offset`.
@@ -1238,6 +1263,16 @@ mod tests {
         let index = LineIndex::new(s);
         for offset in 0..=s.len() {
             assert_eq!(index.line_index(offset), text_line_index(s, offset));
+        }
+        for sample in [s, "end\nnext\n", "end\rnext\r", "a\r\nb\nc\r"] {
+            let index = LineIndex::new(sample);
+            for offset in 0..=sample.len() {
+                assert_eq!(
+                    index.line_and_column(sample, offset),
+                    text_line_column(sample, offset),
+                    "{sample:?} @{offset}"
+                );
+            }
         }
     }
 

@@ -273,12 +273,14 @@ pub fn search_one_file(
         if params.count_only {
             count = matcher.count_matches(content, stop_after_first_hit(params));
         } else {
+            // One index for every hit. Rebuilding it per match is O(file * hits).
+            let lines = crate::ops::file::LineIndex::new(content);
             for (start, end) in matcher.find_iter_positions(content) {
                 count += 1;
                 if skip_match_detail(params, file_matches.len()) {
                     continue;
                 }
-                let (line, column) = crate::ops::file::text_line_column(content, start);
+                let (line, column) = lines.line_and_column(content, start);
                 file_matches.push(SearchMatch {
                     path: path_str.clone(),
                     line,
