@@ -147,7 +147,7 @@ fn map_parse_err(e: SearchReplaceParseError) -> anyhow::Error {
     anyhow::Error::new(crate::exit::ParseErrorError { msg: e.message })
 }
 
-fn resolve_search_replace_path(
+pub(crate) fn resolve_search_replace_path(
     cwd: &Path,
     dest: &str,
     file_hint: Option<&Path>,
@@ -530,6 +530,50 @@ fn new() {}
             !src.join("src").join("foo.rs").exists(),
             "must not join dest under path.parent() as src/src/foo.rs"
         );
+    }
+
+    fn two_dest_doc(first: &str, second: &str) -> String {
+        format!(
+            "<<<<<<< SEARCH\n{first}\n-------\nalpha\n=======\nALPHA\n>>>>>>> REPLACE\n<<<<<<< SEARCH\n{second}\n-------\nbeta\n=======\nBETA\n>>>>>>> REPLACE\n"
+        )
+    }
+
+    #[test]
+    fn apply_patch_refuses_other_dest_before_write() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("f.rs");
+        let other = dir.path().join("g.rs");
+        let original_dest = "alpha\nbeta\n";
+        let original_other = "alpha\nbeta\n";
+        std::fs::write(&dest, original_dest).unwrap();
+        std::fs::write(&other, original_other).unwrap();
+        let doc = two_dest_doc("f.rs", "g.rs");
+        for mode in [ApplyMode::Apply, ApplyMode::Preview] {
+            let err = crate::api::apply_patch(&dest, &doc, mode, None)
+                .expect_err("second dest is not the caller file");
+            assert!(is_invalid_input(&err), "{mode:?} {err}");
+            assert!(err.to_string().contains("apply_patch_file"), "{err}");
+            assert_eq!(std::fs::read_to_string(&dest).unwrap(), original_dest);
+            assert_eq!(std::fs::read_to_string(&other).unwrap(), original_other);
+        }
+    }
+
+    #[test]
+    fn apply_patch_refuses_other_dest_same_file_still_applies() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("f.rs");
+        std::fs::write(&dest, "alpha\nbeta\n").unwrap();
+        let doc = two_dest_doc("f.rs", "f.rs");
+        let result = crate::api::apply_patch(&dest, &doc, ApplyMode::Apply, None)
+            .expect("both dests are the caller file");
+        assert!(result.applied);
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), "ALPHA\nBETA\n");
+        let names: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|name| name != ".patchloom")
+            .collect();
+        assert_eq!(names, vec!["f.rs".to_string()]);
     }
 
     #[test]
