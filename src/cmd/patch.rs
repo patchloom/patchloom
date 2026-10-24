@@ -1087,6 +1087,7 @@ fn run_search_replace_check(
     diff_text: &str,
     replace_all: bool,
 ) -> anyhow::Result<u8> {
+    let guard = global.workspace_guard(cwd)?;
     let results = match crate::api::apply_search_replace_document(
         diff_text,
         cwd,
@@ -1095,7 +1096,7 @@ fn run_search_replace_check(
             ..Default::default()
         },
         crate::api::ApplyMode::Preview,
-        None,
+        guard.as_ref(),
     ) {
         Ok(r) => r,
         Err(e) => {

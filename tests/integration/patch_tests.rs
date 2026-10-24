@@ -2817,6 +2817,173 @@ fn test_patch_apply_search_replace_writes_file() {
     );
 }
 
+fn assert_search_replace_command_rejects(
+    label: &str,
+    dir: &std::path::Path,
+    patch_file: &std::path::Path,
+    contain: bool,
+    args_tail: &[&str],
+    error_kind: &str,
+    message_needle: &str,
+) {
+    let mut cmd = Command::cargo_bin("patchloom").unwrap();
+    if contain {
+        cmd.arg("--contain");
+    }
+    cmd.arg("--cwd")
+        .arg(dir)
+        .arg("--json")
+        .args(args_tail)
+        .arg(patch_file);
+    let out = cmd.output().unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "{label} stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or_else(|_| {
+        panic!(
+            "{label} expected JSON stdout, got stdout={} stderr={}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        )
+    });
+    assert_eq!(v["error_kind"], error_kind, "{label} {v}");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains(message_needle),
+        "{label} message missing {message_needle}: {v}"
+    );
+}
+
+#[test]
+fn test_patch_check_and_apply_reject_absolute_search_replace_dest() {
+    let dir = TempDir::new().unwrap();
+    let outside = TempDir::new().unwrap();
+    let outside_file = outside.path().join("secret.rs");
+    let original = "fn old() {}\n";
+    fs::write(&outside_file, original).unwrap();
+    let patch_file = dir.path().join("change.sr");
+    fs::write(
+        &patch_file,
+        search_replace_doc(
+            &outside_file.to_string_lossy(),
+            "fn old() {}",
+            "fn new() {}",
+        ),
+    )
+    .unwrap();
+
+    for (label, args_tail) in [
+        ("check", &["patch", "check"][..]),
+        ("apply", &["patch", "apply", "--apply"][..]),
+    ] {
+        assert_search_replace_command_rejects(
+            label,
+            dir.path(),
+            &patch_file,
+            false,
+            args_tail,
+            "invalid_input",
+            "must be relative",
+        );
+        assert_eq!(fs::read_to_string(&outside_file).unwrap(), original);
+    }
+}
+
+#[test]
+fn test_patch_check_and_apply_allow_contained_absolute_dest() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("code.rs");
+    let original = "fn old() {}\n";
+    fs::write(&file, original).unwrap();
+    let patch_file = dir.path().join("change.sr");
+    fs::write(
+        &patch_file,
+        search_replace_doc(&file.to_string_lossy(), "fn old() {}", "fn new() {}"),
+    )
+    .unwrap();
+
+    let check = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--contain")
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("--json")
+        .arg("patch")
+        .arg("check")
+        .arg(&patch_file)
+        .output()
+        .unwrap();
+    assert_eq!(
+        check.status.code(),
+        Some(2),
+        "contained absolute check stdout={} stderr={}",
+        String::from_utf8_lossy(&check.stdout),
+        String::from_utf8_lossy(&check.stderr)
+    );
+    assert_eq!(fs::read_to_string(&file).unwrap(), original);
+
+    let apply = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--contain")
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("--json")
+        .arg("patch")
+        .arg("apply")
+        .arg(&patch_file)
+        .arg("--apply")
+        .output()
+        .unwrap();
+    assert_eq!(
+        apply.status.code(),
+        Some(0),
+        "contained absolute apply stdout={} stderr={}",
+        String::from_utf8_lossy(&apply.stdout),
+        String::from_utf8_lossy(&apply.stderr)
+    );
+    assert_eq!(fs::read_to_string(&file).unwrap(), "fn new() {}\n");
+}
+
+#[cfg(unix)]
+#[test]
+fn test_patch_check_and_apply_reject_symlink_escape() {
+    let dir = TempDir::new().unwrap();
+    let outside = TempDir::new().unwrap();
+    let outside_file = outside.path().join("secret.rs");
+    let original = "fn old() {}\n";
+    fs::write(&outside_file, original).unwrap();
+    let link = dir.path().join("link.rs");
+    if std::os::unix::fs::symlink(&outside_file, &link).is_err() {
+        return;
+    }
+    let patch_file = dir.path().join("change.sr");
+    fs::write(
+        &patch_file,
+        search_replace_doc("link.rs", "fn old() {}", "fn new() {}"),
+    )
+    .unwrap();
+
+    for (label, args_tail) in [
+        ("check", &["patch", "check"][..]),
+        ("apply", &["patch", "apply", "--apply"][..]),
+    ] {
+        assert_search_replace_command_rejects(
+            label,
+            dir.path(),
+            &patch_file,
+            true,
+            args_tail,
+            "guard_rejected",
+            "workspace guard",
+        );
+        assert_eq!(fs::read_to_string(&outside_file).unwrap(), original);
+    }
+}
+
 #[test]
 fn test_patch_apply_search_replace_crlf_writes_lf_file() {
     let dir = TempDir::new().unwrap();

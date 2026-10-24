@@ -341,6 +341,15 @@ fn execute_search_replace(
             }
             .into());
         }
+        if std::path::Path::new(&block.path).is_absolute() && tx.guard.is_none() {
+            return Err(crate::exit::InvalidInputError {
+                msg: format!(
+                    "SEARCH/REPLACE path must be relative to the workspace (or pass PathGuard for a contained absolute): {}",
+                    block.path
+                ),
+            }
+            .into());
+        }
         let dest = tx.cwd.join(&block.path);
         if dest.is_dir() {
             return Err(crate::exit::InvalidInputError {
