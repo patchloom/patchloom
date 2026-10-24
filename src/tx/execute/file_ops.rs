@@ -12,7 +12,7 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
     match op {
         Operation::FileAppend { path, content } => {
             let file_path = tx.cwd.join(path);
-            use crate::ops::file::{PathEntryKind, classify_path_entry, path_entry_exists};
+            use crate::ops::file::{is_followed_content_file, path_entry_exists};
             if tx.deletions.contains(&file_path) {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::NotFound,
@@ -28,8 +28,8 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
                     )
                     .into());
                 }
-                // Dangling symlink is present (not not_found) but not a regular file.
-                if classify_path_entry(&file_path) != PathEntryKind::RegularFile {
+                // Dangling symlink is present (not not_found) but not a followed file.
+                if !is_followed_content_file(&file_path) {
                     return Err(crate::exit::InvalidInputError {
                         msg: format!("target is not a file: {path}"),
                     }
@@ -47,7 +47,7 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
 
         Operation::FilePrepend { path, content } => {
             let file_path = tx.cwd.join(path);
-            use crate::ops::file::{PathEntryKind, classify_path_entry, path_entry_exists};
+            use crate::ops::file::{is_followed_content_file, path_entry_exists};
             if tx.deletions.contains(&file_path) {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::NotFound,
@@ -63,7 +63,8 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
                     )
                     .into());
                 }
-                if classify_path_entry(&file_path) != PathEntryKind::RegularFile {
+                // Dangling symlink is present (not not_found) but not a followed file.
+                if !is_followed_content_file(&file_path) {
                     return Err(crate::exit::InvalidInputError {
                         msg: format!("target is not a file: {path}"),
                     }

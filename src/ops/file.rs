@@ -862,33 +862,45 @@ pub fn ensure_parent_components_are_directories(
     Ok(())
 }
 
+/// True when a content write may follow `path`.
+///
+/// A regular file, or a symlink whose target is a regular file (`Path::is_file`
+/// follows). Dangling links, directories, FIFOs, sockets, devices, and
+/// symlink-to-directory are false so callers do not open them.
+pub(crate) fn is_followed_content_file(path: &Path) -> bool {
+    match classify_path_entry(path) {
+        PathEntryKind::RegularFile => true,
+        PathEntryKind::Special => path.is_file(),
+        PathEntryKind::Missing | PathEntryKind::RealDirectory => false,
+    }
+}
+
 /// Reject on-disk binary targets for text-oriented file ops (append/prepend).
 ///
 /// NUL bytes are valid UTF-8, so `read_to_string` succeeds and used to rewrite
 /// binaries as text. Matches replace/search skip policy (`is_binary` on the
-/// first 8 KiB). `display` is the path shown in the error (CLI arg or op path).
-/// Returns [`crate::exit::BinaryError`] (`error_kind: binary`) so hosts can
-/// distinguish content SoftSkip from argument `invalid_input` (#1963).
+/// first 8 KiB), including a symlink to a file. `display` is the path shown
+/// in the error (CLI arg or op path). Returns [`crate::exit::BinaryError`]
+/// (`error_kind: binary`) so hosts can distinguish content SoftSkip from
+/// argument `invalid_input` (#1963).
 pub fn ensure_not_binary_file(path: &Path, display: &str) -> Result<(), crate::exit::BinaryError> {
-    if !path.exists() {
-        return Ok(());
+    // Follow file symlinks the same way as `files::is_binary_file` (metadata
+    // follows, `is_file`, then an 8 KiB NUL probe). Do not open FIFOs, sockets,
+    // or devices. Missing paths and open errors stay Ok.
+    if path.exists() && crate::files::is_binary_file(path) {
+        return Err(crate::exit::BinaryError {
+            msg: format!("target is a binary file: {display}"),
+        });
     }
-    // Never open FIFOs/sockets/devices for a binary probe (blocks forever).
-    // Callers that must reject special nodes do so before this helper.
-    if !is_regular_file_for_backup(path) {
-        return Ok(());
-    }
-    let mut file = match std::fs::File::open(path) {
-        Ok(f) => f,
-        // Existence was checked by the caller; open errors surface on full read.
-        Err(_) => return Ok(()),
-    };
-    ensure_not_binary_reader(&mut file, display)
+    Ok(())
 }
 
 /// Probe `reader` the same way as [`ensure_not_binary_file`].
 ///
 /// Isolated so tests can wrap the source in [`crate::files::ShortRead`].
+/// Production uses [`crate::files::is_binary_file`], which cannot inject a
+/// short read.
+#[cfg(test)]
 fn ensure_not_binary_reader<R: std::io::Read>(
     reader: &mut R,
     display: &str,
@@ -1915,6 +1927,29 @@ mod tests {
             crate::fallback::edit_error_kind(&ae),
             Some(crate::fallback::EditErrorKind::Binary)
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ensure_not_binary_symlink_to_nul_is_binary() {
+        let dir = TempDir::new().unwrap();
+        let real = dir.path().join("b.bin");
+        fs::write(&real, b"hello\x00world").unwrap();
+        let link = dir.path().join("link.bin");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let err = ensure_not_binary_file(&link, "link.bin").unwrap_err();
+        assert!(err.msg.contains("binary file"), "got: {}", err.msg);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ensure_not_binary_symlink_to_text_ok() {
+        let dir = TempDir::new().unwrap();
+        let real = dir.path().join("t.txt");
+        fs::write(&real, "hello\n").unwrap();
+        let link = dir.path().join("link.txt");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        ensure_not_binary_file(&link, "link.txt").unwrap();
     }
 
     #[test]

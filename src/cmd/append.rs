@@ -96,7 +96,9 @@ pub(crate) fn run_content_inject(
     let path = cwd.join(file);
     // Entry presence (not Path::exists follow): dangling symlink is present
     // like create/delete/rename (#2087 dual-path), not not_found.
-    use crate::ops::file::{PathEntryKind, classify_path_entry, path_entry_exists};
+    use crate::ops::file::{
+        PathEntryKind, classify_path_entry, is_followed_content_file, path_entry_exists,
+    };
     if !path_entry_exists(&path) {
         let msg = format!("file does not exist: {file}");
         global.emit_error_json_kind(Some("not_found"), &msg)?;
@@ -109,6 +111,7 @@ pub(crate) fn run_content_inject(
             global.emit_error_json_kind(Some("not_found"), &msg)?;
             return Ok(crate::exit::FAILURE);
         }
+        PathEntryKind::Special if is_followed_content_file(&path) => {}
         _ => {
             // Dangling/symlink-to-dir/FIFO/dir: content ops need a regular file.
             let msg = format!("target is not a file: {file}");
@@ -345,6 +348,83 @@ mod tests {
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::FAILURE);
         assert_eq!(fs::read(&file).unwrap(), b"hello\x00world");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn append_symlink_to_text_apply_writes_target() {
+        let dir = TempDir::new().unwrap();
+        let real = dir.path().join("real.txt");
+        fs::write(&real, "hello\n").unwrap();
+        let link = dir.path().join("link.txt");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+
+        let args = AppendArgs {
+            file: link.to_string_lossy().into_owned(),
+            content: Some("X\n".to_string()),
+            stdin: false,
+            write: Default::default(),
+        };
+        let mut global = GlobalFlags::test_with_cwd(dir.path());
+        global.apply = true;
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+        let text = fs::read_to_string(&real).unwrap();
+        assert!(text.contains("hello"), "target must keep hello: {text}");
+        assert!(text.contains('X'), "target must contain X: {text}");
+        assert_eq!(text, "hello\nX\n");
+        assert!(
+            link.symlink_metadata().unwrap().file_type().is_symlink(),
+            "link must still be a symlink"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn append_symlink_to_text_preview_leaves_target() {
+        let dir = TempDir::new().unwrap();
+        let real = dir.path().join("real.txt");
+        fs::write(&real, "hello\n").unwrap();
+        let link = dir.path().join("link.txt");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+
+        let args = AppendArgs {
+            file: link.to_string_lossy().into_owned(),
+            content: Some("X\n".to_string()),
+            stdin: false,
+            write: Default::default(),
+        };
+        let global = GlobalFlags::test_with_cwd(dir.path());
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::CHANGES_DETECTED);
+        assert_eq!(fs::read(&real).unwrap(), b"hello\n");
+        assert!(link.symlink_metadata().unwrap().file_type().is_symlink());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn append_symlink_to_binary_apply_leaves_target() {
+        let dir = TempDir::new().unwrap();
+        let real = dir.path().join("real.bin");
+        fs::write(&real, b"hello\x00world").unwrap();
+        let link = dir.path().join("link.bin");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+
+        let args = AppendArgs {
+            file: link.to_string_lossy().into_owned(),
+            content: Some("Z\n".to_string()),
+            stdin: false,
+            write: Default::default(),
+        };
+        let mut global = GlobalFlags::test_with_cwd(dir.path());
+        global.apply = true;
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::FAILURE);
+        assert_eq!(fs::read(&real).unwrap(), b"hello\x00world");
+        assert!(link.symlink_metadata().unwrap().file_type().is_symlink());
     }
 
     #[test]
