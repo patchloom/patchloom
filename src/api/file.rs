@@ -451,18 +451,52 @@ pub(crate) fn name_error_with_caller_path(
     caller: &Path,
 ) -> anyhow::Error {
     let caller_s = caller.to_string_lossy();
-    if engine_path.is_empty() || engine_path == caller_s.as_ref() {
+    // Only absolute plan paths are the library expansion. A relative token
+    // such as the patch dest `b/foo.rs` is a suffix of `notb/foo.rs`.
+    if engine_path.is_empty()
+        || engine_path == caller_s.as_ref()
+        || !Path::new(engine_path).is_absolute()
+    {
         return err;
     }
     let shown = err.to_string();
-    let msg = if shown.contains(engine_path) {
-        shown.replace(engine_path, caller_s.as_ref())
+    let msg = if let Some(rewritten) = replace_whole_path(&shown, engine_path, caller_s.as_ref()) {
+        rewritten
     } else if let Some(rewritten) = rewrite_engine_parent(&shown, engine_path, caller) {
         rewritten
     } else {
         return err;
     };
     rewrap_named_path_error(err, msg)
+}
+
+/// Replace `from` only when it is a whole path, not a suffix of a longer one.
+fn replace_whole_path(shown: &str, from: &str, to: &str) -> Option<String> {
+    if from.is_empty() || !shown.contains(from) {
+        return None;
+    }
+    let mut out = String::with_capacity(shown.len());
+    let mut rest = shown;
+    let mut replaced = false;
+    while let Some(idx) = rest.find(from) {
+        let end = idx + from.len();
+        let before_ok = idx == 0 || !is_path_byte(rest.as_bytes()[idx - 1]);
+        let after_ok = end >= rest.len() || !is_path_byte(rest.as_bytes()[end]);
+        out.push_str(&rest[..idx]);
+        if before_ok && after_ok {
+            out.push_str(to);
+            replaced = true;
+        } else {
+            out.push_str(from);
+        }
+        rest = &rest[end..];
+    }
+    out.push_str(rest);
+    if replaced { Some(out) } else { None }
+}
+
+fn is_path_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || matches!(b, b'/' | b'\\' | b'.' | b'_' | b'-')
 }
 
 /// `parent path is not a directory` names the absolute parent, not the
@@ -476,13 +510,13 @@ fn rewrite_engine_parent(shown: &str, engine_path: &str, caller: &Path) -> Optio
         .filter(|parent| !parent.as_os_str().is_empty())?;
     let engine_parent_s = engine_parent.to_string_lossy();
     let caller_parent_s = caller_parent.to_string_lossy();
-    if engine_parent_s.is_empty() || engine_parent_s == caller_parent_s {
+    if engine_parent_s.is_empty()
+        || engine_parent_s == caller_parent_s
+        || !engine_parent.is_absolute()
+    {
         return None;
     }
-    if !shown.contains(engine_parent_s.as_ref()) {
-        return None;
-    }
-    Some(shown.replace(engine_parent_s.as_ref(), caller_parent_s.as_ref()))
+    replace_whole_path(shown, engine_parent_s.as_ref(), caller_parent_s.as_ref())
 }
 
 fn rewrap_named_path_error(err: anyhow::Error, msg: String) -> anyhow::Error {
