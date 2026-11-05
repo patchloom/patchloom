@@ -9972,6 +9972,131 @@ fn file_append_symlink_to_nul_is_binary() {
     assert_eq!(fs::read(&real).unwrap(), b"a\x00b");
 }
 
+/// Refusal text must name `caller`, not the absolute path stored on the op (#2720).
+#[cfg(any(feature = "cli", feature = "files"))]
+fn assert_error_names_caller(err: &anyhow::Error, caller: &Path, kind: EditErrorKind) {
+    assert_eq!(crate::fallback::edit_error_kind(err), Some(kind), "{err}");
+    let msg = err.to_string();
+    let caller_s = caller.to_string_lossy();
+    assert!(
+        msg.contains(caller_s.as_ref()),
+        "error must name {caller_s}: {msg}"
+    );
+    let expanded = std::env::current_dir()
+        .expect("current_dir")
+        .join(caller)
+        .to_string_lossy()
+        .into_owned();
+    assert!(
+        !msg.contains(&expanded),
+        "error expanded {caller_s} to {expanded}: {msg}"
+    );
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+fn assert_binary_error_names_caller(err: &anyhow::Error, caller: &Path) {
+    assert_error_names_caller(err, caller, EditErrorKind::Binary);
+    assert_eq!(crate::fallback::error_kind_str(err), Some("binary"));
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn file_append_and_prepend_relative_binary_error_names_caller_path() {
+    let dir = TempDir::new().unwrap();
+    fs::create_dir(dir.path().join("sub")).unwrap();
+    fs::write(dir.path().join("blob.bin"), b"a\x00b").unwrap();
+    fs::write(dir.path().join("sub").join("blob.bin"), b"a\x00b").unwrap();
+    let _cwd = CwdGuard::enter(dir.path());
+
+    for caller in [Path::new("blob.bin"), Path::new("sub/blob.bin")] {
+        let err = file_append(caller, "x", ApplyMode::Apply, None).unwrap_err();
+        assert_binary_error_names_caller(&err, caller);
+        let err = file_prepend(caller, "x", ApplyMode::Apply, None).unwrap_err();
+        assert_binary_error_names_caller(&err, caller);
+        let on_disk = std::env::current_dir().unwrap().join(caller);
+        assert_eq!(fs::read(&on_disk).unwrap(), b"a\x00b");
+    }
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn file_append_and_prepend_relative_refusal_names_caller_path() {
+    let dir = TempDir::new().unwrap();
+    fs::create_dir(dir.path().join("sub")).unwrap();
+    fs::create_dir(dir.path().join("subdir")).unwrap();
+    let _cwd = CwdGuard::enter(dir.path());
+
+    for caller in [Path::new("gone.txt"), Path::new("sub/gone.txt")] {
+        for err in [
+            file_append(caller, "x", ApplyMode::Apply, None).unwrap_err(),
+            file_prepend(caller, "x", ApplyMode::Apply, None).unwrap_err(),
+        ] {
+            assert_error_names_caller(&err, caller, EditErrorKind::NotFound);
+            assert!(crate::fallback::is_not_found(&err), "{err}");
+            assert!(!std::env::current_dir().unwrap().join(caller).exists());
+        }
+    }
+
+    let caller = Path::new("subdir");
+    for err in [
+        file_append(caller, "x", ApplyMode::Apply, None).unwrap_err(),
+        file_prepend(caller, "x", ApplyMode::Apply, None).unwrap_err(),
+    ] {
+        assert_error_names_caller(&err, caller, EditErrorKind::InvalidInput);
+        assert!(dir.path().join("subdir").is_dir());
+    }
+
+    fs::write(
+        std::env::current_dir().unwrap().join("bad.txt"),
+        b"hello\xffworld",
+    )
+    .unwrap();
+    let caller = Path::new("bad.txt");
+    let err = file_append(caller, "x", ApplyMode::Apply, None).unwrap_err();
+    assert_error_names_caller(&err, caller, EditErrorKind::InvalidEncoding);
+    assert_eq!(
+        fs::read(std::env::current_dir().unwrap().join(caller)).unwrap(),
+        b"hello\xffworld"
+    );
+}
+
+#[cfg(all(unix, any(feature = "cli", feature = "files")))]
+#[test]
+fn file_append_and_prepend_relative_symlink_binary_error_names_caller_path() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("bin.dat"), b"a\x00b").unwrap();
+    fs::write(dir.path().join("pre.dat"), b"a\x00b").unwrap();
+    std::os::unix::fs::symlink("bin.dat", dir.path().join("bin.link")).unwrap();
+    std::os::unix::fs::symlink("pre.dat", dir.path().join("pre.link")).unwrap();
+    let _cwd = CwdGuard::enter(dir.path());
+
+    let link = Path::new("bin.link");
+    let err = file_append(link, "x", ApplyMode::Apply, None).unwrap_err();
+    assert_binary_error_names_caller(&err, link);
+    assert_eq!(fs::read(dir.path().join("bin.dat")).unwrap(), b"a\x00b");
+    assert!(
+        dir.path()
+            .join("bin.link")
+            .symlink_metadata()
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+
+    let link = Path::new("pre.link");
+    let err = file_prepend(link, "x", ApplyMode::Apply, None).unwrap_err();
+    assert_binary_error_names_caller(&err, link);
+    assert_eq!(fs::read(dir.path().join("pre.dat")).unwrap(), b"a\x00b");
+    assert!(
+        dir.path()
+            .join("pre.link")
+            .symlink_metadata()
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+}
+
 #[cfg(any(feature = "cli", feature = "files"))]
 #[test]
 fn file_rename_binary_path_only_succeeds() {

@@ -435,6 +435,43 @@ pub fn file_rename(
     file_write_cross(op, src, mode, guard, "rename", dest_str)
 }
 
+/// Plan ops store an absolute path when no guard is set so `cwd.join`
+/// does not double a nested relative dest (#2385). Refusals echo that
+/// op path. Put the caller spelling back (#2720).
+fn name_error_with_caller_path(
+    err: anyhow::Error,
+    engine_path: &str,
+    caller: &Path,
+) -> anyhow::Error {
+    let caller_s = caller.to_string_lossy();
+    if engine_path.is_empty() || engine_path == caller_s.as_ref() {
+        return err;
+    }
+    let shown = err.to_string();
+    if !shown.contains(engine_path) {
+        return err;
+    }
+    let msg = shown.replace(engine_path, caller_s.as_ref());
+    if crate::exit::is_binary(&err) {
+        return crate::exit::BinaryError { msg }.into();
+    }
+    if crate::exit::is_invalid_encoding(&err) {
+        return crate::exit::InvalidEncodingError { msg }.into();
+    }
+    if crate::exit::is_io_not_found(&err) {
+        return std::io::Error::new(std::io::ErrorKind::NotFound, msg).into();
+    }
+    // Hint errors are a different type. Do not flatten them into InvalidInputError.
+    if err.chain().any(|cause| {
+        cause
+            .downcast_ref::<crate::exit::InvalidInputError>()
+            .is_some()
+    }) {
+        return crate::exit::InvalidInputError { msg }.into();
+    }
+    err
+}
+
 /// Append content to an existing file.
 ///
 /// The file must exist (use file_create for new files). A trailing newline
@@ -452,10 +489,11 @@ pub fn file_append(
     #[cfg(not(any(feature = "cli", feature = "files")))]
     let op_path = path.to_string_lossy().into_owned();
     let op = Operation::FileAppend {
-        path: op_path,
+        path: op_path.clone(),
         content: content.into(),
     };
     file_write(op, path, mode, guard, "append")
+        .map_err(|err| name_error_with_caller_path(err, &op_path, path))
 }
 
 /// Prepend content to an existing file.
@@ -474,8 +512,9 @@ pub fn file_prepend(
     #[cfg(not(any(feature = "cli", feature = "files")))]
     let op_path = path.to_string_lossy().into_owned();
     let op = Operation::FilePrepend {
-        path: op_path,
+        path: op_path.clone(),
         content: content.into(),
     };
     file_write(op, path, mode, guard, "prepend")
+        .map_err(|err| name_error_with_caller_path(err, &op_path, path))
 }
