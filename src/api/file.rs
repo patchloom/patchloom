@@ -455,10 +455,37 @@ fn name_error_with_caller_path(
         return err;
     }
     let shown = err.to_string();
-    if !shown.contains(engine_path) {
+    let msg = if shown.contains(engine_path) {
+        shown.replace(engine_path, caller_s.as_ref())
+    } else if let Some(rewritten) = rewrite_engine_parent(&shown, engine_path, caller) {
+        rewritten
+    } else {
         return err;
+    };
+    rewrap_named_path_error(err, msg)
+}
+
+/// `parent path is not a directory` names the absolute parent, not the
+/// plan path. Swap that parent for the caller parent.
+fn rewrite_engine_parent(shown: &str, engine_path: &str, caller: &Path) -> Option<String> {
+    let engine_parent = Path::new(engine_path)
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())?;
+    let caller_parent = caller
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())?;
+    let engine_parent_s = engine_parent.to_string_lossy();
+    let caller_parent_s = caller_parent.to_string_lossy();
+    if engine_parent_s.is_empty() || engine_parent_s == caller_parent_s {
+        return None;
     }
-    let msg = shown.replace(engine_path, caller_s.as_ref());
+    if !shown.contains(engine_parent_s.as_ref()) {
+        return None;
+    }
+    Some(shown.replace(engine_parent_s.as_ref(), caller_parent_s.as_ref()))
+}
+
+fn rewrap_named_path_error(err: anyhow::Error, msg: String) -> anyhow::Error {
     if crate::exit::is_binary(&err) {
         return crate::exit::BinaryError { msg }.into();
     }

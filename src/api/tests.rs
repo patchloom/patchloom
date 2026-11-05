@@ -10099,6 +10099,34 @@ fn file_append_and_prepend_relative_symlink_binary_error_names_caller_path() {
 
 #[cfg(any(feature = "cli", feature = "files"))]
 #[test]
+fn file_create_relative_parent_file_names_caller_path() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("keep.txt"), b"old").unwrap();
+    let _cwd = CwdGuard::enter(dir.path());
+    let caller = Path::new("keep.txt/child.txt");
+    let err = file_create(caller, "x", false, ApplyMode::Apply, None).unwrap_err();
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::InvalidInput),
+        "{err}"
+    );
+    let msg = err.to_string();
+    assert!(msg.contains("keep.txt"), "{msg}");
+    let expanded = std::env::current_dir()
+        .unwrap()
+        .join("keep.txt")
+        .to_string_lossy()
+        .into_owned();
+    assert!(!msg.contains(&expanded), "{msg}");
+    assert_eq!(
+        fs::read(std::env::current_dir().unwrap().join("keep.txt")).unwrap(),
+        b"old"
+    );
+    assert!(!std::env::current_dir().unwrap().join(caller).exists());
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
 fn file_create_relative_exists_names_caller_path() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("keep.txt"), b"old").unwrap();
