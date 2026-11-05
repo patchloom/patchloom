@@ -10099,6 +10099,49 @@ fn file_append_and_prepend_relative_symlink_binary_error_names_caller_path() {
 
 #[cfg(any(feature = "cli", feature = "files"))]
 #[test]
+fn file_create_relative_exists_names_caller_path() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("keep.txt"), b"old").unwrap();
+    let _cwd = CwdGuard::enter(dir.path());
+    let caller = Path::new("keep.txt");
+    let err = file_create(caller, "new", false, ApplyMode::Apply, None).unwrap_err();
+    assert_error_names_caller(&err, caller, EditErrorKind::AlreadyExists);
+    assert_eq!(
+        fs::read(std::env::current_dir().unwrap().join(caller)).unwrap(),
+        b"old"
+    );
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn file_delete_relative_directory_names_caller_path() {
+    let dir = TempDir::new().unwrap();
+    fs::create_dir(dir.path().join("subdir")).unwrap();
+    let _cwd = CwdGuard::enter(dir.path());
+    let caller = Path::new("subdir");
+    let err = file_delete(caller, ApplyMode::Apply, None).unwrap_err();
+    assert_error_names_caller(&err, caller, EditErrorKind::InvalidInput);
+    assert!(std::env::current_dir().unwrap().join(caller).is_dir());
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn file_rename_relative_dest_exists_names_caller_path() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), b"A").unwrap();
+    fs::write(dir.path().join("b.txt"), b"B").unwrap();
+    let _cwd = CwdGuard::enter(dir.path());
+    let src = Path::new("a.txt");
+    let dst = Path::new("b.txt");
+    let err = file_rename(src, dst, false, ApplyMode::Apply, None).unwrap_err();
+    assert_error_names_caller(&err, dst, EditErrorKind::AlreadyExists);
+    let cwd = std::env::current_dir().unwrap();
+    assert_eq!(fs::read(cwd.join(src)).unwrap(), b"A");
+    assert_eq!(fs::read(cwd.join(dst)).unwrap(), b"B");
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
 fn file_rename_binary_path_only_succeeds() {
     // Path-only rename: binary must move without host OS fallback (#2031).
     let dir = TempDir::new().unwrap();

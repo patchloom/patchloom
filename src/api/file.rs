@@ -332,11 +332,12 @@ pub fn file_create(
     #[cfg(not(any(feature = "cli", feature = "files")))]
     let op_path = path.to_string_lossy().into_owned();
     let op = Operation::FileCreate {
-        path: op_path,
+        path: op_path.clone(),
         content: content.into(),
         force: Some(force),
     };
     file_write(op, path, mode, guard, "create")
+        .map_err(|err| name_error_with_caller_path(err, &op_path, path))
 }
 
 /// Delete a file, symlink, FIFO, socket, or device node under PathGuard (#2087).
@@ -390,10 +391,11 @@ pub fn file_delete_with_options(
     #[cfg(not(any(feature = "cli", feature = "files")))]
     let op_path = path.to_string_lossy().into_owned();
     let op = Operation::FileDelete {
-        path: op_path,
+        path: op_path.clone(),
         if_exists: opts.if_exists,
     };
     file_write(op, path, mode, guard, "delete")
+        .map_err(|err| name_error_with_caller_path(err, &op_path, path))
 }
 
 /// Rename (move) a file, real directory, symlink, FIFO, socket, or device node
@@ -431,8 +433,13 @@ pub fn file_rename(
     #[cfg(not(any(feature = "cli", feature = "files")))]
     let to = dst.to_string_lossy().into_owned();
     let dest_str = Some(dst.to_string_lossy().into_owned());
-    let op = Operation::FileRename { from, to, force };
+    let op = Operation::FileRename {
+        from: from.clone(),
+        to: to.clone(),
+        force,
+    };
     file_write_cross(op, src, mode, guard, "rename", dest_str)
+        .map_err(|err| rename_error_with_caller_paths(err, &from, src, &to, dst))
 }
 
 /// Plan ops store an absolute path when no guard is set so `cwd.join`
@@ -469,7 +476,34 @@ fn name_error_with_caller_path(
     }) {
         return crate::exit::InvalidInputError { msg }.into();
     }
+    if crate::exit::is_already_exists(&err) {
+        return crate::exit::AlreadyExistsError { msg }.into();
+    }
     err
+}
+
+/// Put caller `src` and `dst` back on a rename error. The longer engine
+/// path is replaced first so a prefix does not corrupt the other. Equal
+/// engine strings are one replacement.
+fn rename_error_with_caller_paths(
+    err: anyhow::Error,
+    from_engine: &str,
+    src: &Path,
+    to_engine: &str,
+    dst: &Path,
+) -> anyhow::Error {
+    let (first_engine, first_caller, second_engine, second_caller) =
+        if to_engine.len() > from_engine.len() {
+            (to_engine, dst, from_engine, src)
+        } else {
+            (from_engine, src, to_engine, dst)
+        };
+    let err = name_error_with_caller_path(err, first_engine, first_caller);
+    if first_engine == second_engine {
+        err
+    } else {
+        name_error_with_caller_path(err, second_engine, second_caller)
+    }
 }
 
 /// Append content to an existing file.
