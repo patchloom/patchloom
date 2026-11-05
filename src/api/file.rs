@@ -445,7 +445,7 @@ pub fn file_rename(
 /// Plan ops store an absolute path when no guard is set so `cwd.join`
 /// does not double a nested relative dest (#2385). Refusals echo that
 /// op path. Put the caller spelling back (#2720).
-fn name_error_with_caller_path(
+pub(crate) fn name_error_with_caller_path(
     err: anyhow::Error,
     engine_path: &str,
     caller: &Path,

@@ -10099,6 +10099,29 @@ fn file_append_and_prepend_relative_symlink_binary_error_names_caller_path() {
 
 #[cfg(any(feature = "cli", feature = "files"))]
 #[test]
+fn replace_text_relative_binary_names_caller_path() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("blob.bin"), b"a\x00b").unwrap();
+    let _cwd = CwdGuard::enter(dir.path());
+    let caller = Path::new("blob.bin");
+    let err = replace_text(
+        caller,
+        "a",
+        "b",
+        &ReplaceOptions::default(),
+        ApplyMode::Apply,
+        None,
+    )
+    .unwrap_err();
+    assert_binary_error_names_caller(&err, caller);
+    assert_eq!(
+        fs::read(std::env::current_dir().unwrap().join(caller)).unwrap(),
+        b"a\x00b"
+    );
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
 fn file_create_relative_parent_file_names_caller_path() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("keep.txt"), b"old").unwrap();
