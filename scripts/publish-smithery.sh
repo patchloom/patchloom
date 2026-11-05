@@ -121,4 +121,4 @@ curl -fsS -X PATCH "https://api.smithery.ai/servers/${enc_name}" \
     }')" >/dev/null || true
 
 echo "Published ${qualified_name}"
-echo "Server page: https://smithery.ai/servers/${qualified_name}"
+echo "Smithery directory: https://smithery.ai/"

@@ -1042,6 +1042,13 @@ pub fn restore_session_with_guard(
             FileAction::Created => {}
         }
     }
+    // Directories recorded by create_dir_all are not manifest entries.
+    // The same policy as file paths: `..`, untrusted `__external__*`, and
+    // a guard that follows symlinks. skip_dest_kind so a real directory
+    // is not refused as a non-file before undo removes it.
+    for rel in &manifest.created_dirs {
+        check_restore_policy(project_root, &session_dir, rel, true, guard)?;
+    }
     if !missing.is_empty() {
         return Err(crate::exit::InvalidInputError {
             msg: format!(
@@ -2799,6 +2806,24 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&src).unwrap(), "moved");
     }
 
+    fn write_forged_created_dirs(project: &Path, ts: &str, dirs: &[String], with_origin: bool) {
+        let session_dir = project.join(BACKUP_DIR).join(ts);
+        std::fs::create_dir_all(&session_dir).unwrap();
+        let manifest = Manifest {
+            timestamp: ts.to_string(),
+            entries: Vec::new(),
+            created_dirs: dirs.to_vec(),
+        };
+        std::fs::write(
+            session_dir.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+        if with_origin {
+            std::fs::write(session_dir.join(ORIGIN_SIDECAR), ORIGIN_SIDECAR_BYTES).unwrap();
+        }
+    }
+
     fn write_forged_session(
         project: &Path,
         ts: &str,
@@ -2870,6 +2895,95 @@ mod tests {
             "contained restore must fail, got: {err:#}"
         );
         assert_eq!(std::fs::read_to_string(&outside_file).unwrap(), "keep me");
+    }
+
+    #[test]
+    fn restore_contain_refuses_created_dir_outside() {
+        let dir = TempDir::new().unwrap();
+        let outside = TempDir::new().unwrap();
+        let outside_dir = outside.path().join("empty-undo-dir");
+        std::fs::create_dir(&outside_dir).unwrap();
+
+        let ext_path = sanitize_rel_path(&outside_dir, dir.path())
+            .to_string_lossy()
+            .into_owned();
+        let ts = "forged-created-dir";
+        write_forged_created_dirs(dir.path(), ts, &[ext_path], true);
+
+        let guard = PathGuard::new(
+            dir.path().to_path_buf(),
+            crate::containment::AbsolutePathPolicy::AllowIfContained,
+        )
+        .unwrap();
+        let err = restore_session_with_guard(dir.path(), ts, Some(&guard)).unwrap_err();
+        assert!(
+            crate::api::is_guard_rejected(&err) || crate::exit::is_invalid_input(&err),
+            "contained undo must refuse an outside created dir, got: {err:#}"
+        );
+        assert!(outside_dir.is_dir(), "outside directory must stay");
+    }
+
+    #[test]
+    fn restore_created_dir_parent_escape_refused() {
+        let parent = TempDir::new().unwrap();
+        let project = parent.path().join("proj");
+        std::fs::create_dir(&project).unwrap();
+        let outside = parent.path().join("empty-escape");
+        std::fs::create_dir(&outside).unwrap();
+
+        let ts = "forged-dotdot-dir";
+        write_forged_created_dirs(&project, ts, &["../empty-escape".to_string()], false);
+
+        let err = restore_session(&project, ts).unwrap_err();
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "created_dirs must not walk out with .., got: {err:#}"
+        );
+        assert!(outside.is_dir(), "escaped directory must stay");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn restore_contain_refuses_created_dir_through_symlink() {
+        let dir = TempDir::new().unwrap();
+        let outside = TempDir::new().unwrap();
+        let outside_dir = outside.path().join("via-link");
+        std::fs::create_dir(&outside_dir).unwrap();
+        std::os::unix::fs::symlink(outside.path(), dir.path().join("out")).unwrap();
+
+        let ts = "forged-symlink-dir";
+        write_forged_created_dirs(dir.path(), ts, &["out/via-link".to_string()], true);
+
+        let guard = PathGuard::new(
+            dir.path().to_path_buf(),
+            crate::containment::AbsolutePathPolicy::AllowIfContained,
+        )
+        .unwrap();
+        let err = restore_session_with_guard(dir.path(), ts, Some(&guard)).unwrap_err();
+        assert!(
+            crate::api::is_guard_rejected(&err),
+            "contain must follow the directory symlink, got: {err:#}"
+        );
+        assert!(
+            outside_dir.is_dir(),
+            "directory behind the symlink must stay"
+        );
+    }
+
+    #[test]
+    fn restore_removes_created_dir_inside_project() {
+        let dir = TempDir::new().unwrap();
+        let made = dir.path().join("made");
+        std::fs::create_dir(&made).unwrap();
+        let ts = "real-created-dir";
+        write_forged_created_dirs(dir.path(), ts, &["made".to_string()], false);
+
+        let restored = restore_session(dir.path(), ts).unwrap();
+        assert_eq!(restored, 1);
+        assert!(
+            !made.exists(),
+            "undo must remove the directory the apply created"
+        );
     }
 
     #[test]

@@ -332,11 +332,12 @@ pub fn file_create(
     #[cfg(not(any(feature = "cli", feature = "files")))]
     let op_path = path.to_string_lossy().into_owned();
     let op = Operation::FileCreate {
-        path: op_path,
+        path: op_path.clone(),
         content: content.into(),
         force: Some(force),
     };
     file_write(op, path, mode, guard, "create")
+        .map_err(|err| name_error_with_caller_path(err, &op_path, path))
 }
 
 /// Delete a file, symlink, FIFO, socket, or device node under PathGuard (#2087).
@@ -390,10 +391,11 @@ pub fn file_delete_with_options(
     #[cfg(not(any(feature = "cli", feature = "files")))]
     let op_path = path.to_string_lossy().into_owned();
     let op = Operation::FileDelete {
-        path: op_path,
+        path: op_path.clone(),
         if_exists: opts.if_exists,
     };
     file_write(op, path, mode, guard, "delete")
+        .map_err(|err| name_error_with_caller_path(err, &op_path, path))
 }
 
 /// Rename (move) a file, real directory, symlink, FIFO, socket, or device node
@@ -431,27 +433,93 @@ pub fn file_rename(
     #[cfg(not(any(feature = "cli", feature = "files")))]
     let to = dst.to_string_lossy().into_owned();
     let dest_str = Some(dst.to_string_lossy().into_owned());
-    let op = Operation::FileRename { from, to, force };
+    let op = Operation::FileRename {
+        from: from.clone(),
+        to: to.clone(),
+        force,
+    };
     file_write_cross(op, src, mode, guard, "rename", dest_str)
+        .map_err(|err| rename_error_with_caller_paths(err, &from, src, &to, dst))
 }
 
 /// Plan ops store an absolute path when no guard is set so `cwd.join`
 /// does not double a nested relative dest (#2385). Refusals echo that
 /// op path. Put the caller spelling back (#2720).
-fn name_error_with_caller_path(
+pub(crate) fn name_error_with_caller_path(
     err: anyhow::Error,
     engine_path: &str,
     caller: &Path,
 ) -> anyhow::Error {
     let caller_s = caller.to_string_lossy();
-    if engine_path.is_empty() || engine_path == caller_s.as_ref() {
+    // Only absolute plan paths are the library expansion. A relative token
+    // such as the patch dest `b/foo.rs` is a suffix of `notb/foo.rs`.
+    if engine_path.is_empty()
+        || engine_path == caller_s.as_ref()
+        || !Path::new(engine_path).is_absolute()
+    {
         return err;
     }
     let shown = err.to_string();
-    if !shown.contains(engine_path) {
+    let msg = if let Some(rewritten) = replace_whole_path(&shown, engine_path, caller_s.as_ref()) {
+        rewritten
+    } else if let Some(rewritten) = rewrite_engine_parent(&shown, engine_path, caller) {
+        rewritten
+    } else {
         return err;
+    };
+    rewrap_named_path_error(err, msg)
+}
+
+/// Replace `from` only when it is a whole path, not a suffix of a longer one.
+fn replace_whole_path(shown: &str, from: &str, to: &str) -> Option<String> {
+    if from.is_empty() || !shown.contains(from) {
+        return None;
     }
-    let msg = shown.replace(engine_path, caller_s.as_ref());
+    let mut out = String::with_capacity(shown.len());
+    let mut rest = shown;
+    let mut replaced = false;
+    while let Some(idx) = rest.find(from) {
+        let end = idx + from.len();
+        let before_ok = idx == 0 || !is_path_byte(rest.as_bytes()[idx - 1]);
+        let after_ok = end >= rest.len() || !is_path_byte(rest.as_bytes()[end]);
+        out.push_str(&rest[..idx]);
+        if before_ok && after_ok {
+            out.push_str(to);
+            replaced = true;
+        } else {
+            out.push_str(from);
+        }
+        rest = &rest[end..];
+    }
+    out.push_str(rest);
+    if replaced { Some(out) } else { None }
+}
+
+fn is_path_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || matches!(b, b'/' | b'\\' | b'.' | b'_' | b'-')
+}
+
+/// `parent path is not a directory` names the absolute parent, not the
+/// plan path. Swap that parent for the caller parent.
+fn rewrite_engine_parent(shown: &str, engine_path: &str, caller: &Path) -> Option<String> {
+    let engine_parent = Path::new(engine_path)
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())?;
+    let caller_parent = caller
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())?;
+    let engine_parent_s = engine_parent.to_string_lossy();
+    let caller_parent_s = caller_parent.to_string_lossy();
+    if engine_parent_s.is_empty()
+        || engine_parent_s == caller_parent_s
+        || !engine_parent.is_absolute()
+    {
+        return None;
+    }
+    replace_whole_path(shown, engine_parent_s.as_ref(), caller_parent_s.as_ref())
+}
+
+fn rewrap_named_path_error(err: anyhow::Error, msg: String) -> anyhow::Error {
     if crate::exit::is_binary(&err) {
         return crate::exit::BinaryError { msg }.into();
     }
@@ -469,7 +537,34 @@ fn name_error_with_caller_path(
     }) {
         return crate::exit::InvalidInputError { msg }.into();
     }
+    if crate::exit::is_already_exists(&err) {
+        return crate::exit::AlreadyExistsError { msg }.into();
+    }
     err
+}
+
+/// Put caller `src` and `dst` back on a rename error. The longer engine
+/// path is replaced first so a prefix does not corrupt the other. Equal
+/// engine strings are one replacement.
+fn rename_error_with_caller_paths(
+    err: anyhow::Error,
+    from_engine: &str,
+    src: &Path,
+    to_engine: &str,
+    dst: &Path,
+) -> anyhow::Error {
+    let (first_engine, first_caller, second_engine, second_caller) =
+        if to_engine.len() > from_engine.len() {
+            (to_engine, dst, from_engine, src)
+        } else {
+            (from_engine, src, to_engine, dst)
+        };
+    let err = name_error_with_caller_path(err, first_engine, first_caller);
+    if first_engine == second_engine {
+        err
+    } else {
+        name_error_with_caller_path(err, second_engine, second_caller)
+    }
 }
 
 /// Append content to an existing file.

@@ -10099,6 +10099,100 @@ fn file_append_and_prepend_relative_symlink_binary_error_names_caller_path() {
 
 #[cfg(any(feature = "cli", feature = "files"))]
 #[test]
+fn replace_text_relative_binary_names_caller_path() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("blob.bin"), b"a\x00b").unwrap();
+    let _cwd = CwdGuard::enter(dir.path());
+    let caller = Path::new("blob.bin");
+    let err = replace_text(
+        caller,
+        "a",
+        "b",
+        &ReplaceOptions::default(),
+        ApplyMode::Apply,
+        None,
+    )
+    .unwrap_err();
+    assert_binary_error_names_caller(&err, caller);
+    assert_eq!(
+        fs::read(std::env::current_dir().unwrap().join(caller)).unwrap(),
+        b"a\x00b"
+    );
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn file_create_relative_parent_file_names_caller_path() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("keep.txt"), b"old").unwrap();
+    let _cwd = CwdGuard::enter(dir.path());
+    let caller = Path::new("keep.txt/child.txt");
+    let err = file_create(caller, "x", false, ApplyMode::Apply, None).unwrap_err();
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::InvalidInput),
+        "{err}"
+    );
+    let msg = err.to_string();
+    assert!(msg.contains("keep.txt"), "{msg}");
+    let expanded = std::env::current_dir()
+        .unwrap()
+        .join("keep.txt")
+        .to_string_lossy()
+        .into_owned();
+    assert!(!msg.contains(&expanded), "{msg}");
+    assert_eq!(
+        fs::read(std::env::current_dir().unwrap().join("keep.txt")).unwrap(),
+        b"old"
+    );
+    assert!(!std::env::current_dir().unwrap().join(caller).exists());
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn file_create_relative_exists_names_caller_path() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("keep.txt"), b"old").unwrap();
+    let _cwd = CwdGuard::enter(dir.path());
+    let caller = Path::new("keep.txt");
+    let err = file_create(caller, "new", false, ApplyMode::Apply, None).unwrap_err();
+    assert_error_names_caller(&err, caller, EditErrorKind::AlreadyExists);
+    assert_eq!(
+        fs::read(std::env::current_dir().unwrap().join(caller)).unwrap(),
+        b"old"
+    );
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn file_delete_relative_directory_names_caller_path() {
+    let dir = TempDir::new().unwrap();
+    fs::create_dir(dir.path().join("subdir")).unwrap();
+    let _cwd = CwdGuard::enter(dir.path());
+    let caller = Path::new("subdir");
+    let err = file_delete(caller, ApplyMode::Apply, None).unwrap_err();
+    assert_error_names_caller(&err, caller, EditErrorKind::InvalidInput);
+    assert!(std::env::current_dir().unwrap().join(caller).is_dir());
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn file_rename_relative_dest_exists_names_caller_path() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), b"A").unwrap();
+    fs::write(dir.path().join("b.txt"), b"B").unwrap();
+    let _cwd = CwdGuard::enter(dir.path());
+    let src = Path::new("a.txt");
+    let dst = Path::new("b.txt");
+    let err = file_rename(src, dst, false, ApplyMode::Apply, None).unwrap_err();
+    assert_error_names_caller(&err, dst, EditErrorKind::AlreadyExists);
+    let cwd = std::env::current_dir().unwrap();
+    assert_eq!(fs::read(cwd.join(src)).unwrap(), b"A");
+    assert_eq!(fs::read(cwd.join(dst)).unwrap(), b"B");
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
 fn file_rename_binary_path_only_succeeds() {
     // Path-only rename: binary must move without host OS fallback (#2031).
     let dir = TempDir::new().unwrap();

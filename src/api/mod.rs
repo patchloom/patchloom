@@ -1317,11 +1317,30 @@ pub(crate) fn execute_as_edit_result_with_path(
 ) -> anyhow::Result<EditResult> {
     let global = mode_to_global_flags(mode);
     let options = crate::tx::engine::ExecuteOptions::from_global(cwd, &global, guard);
+    // One declared path is the caller's file. Rename and patch declare more
+    // and keep their own spelling rewrite.
+    let engine_paths = op.declared_paths();
     let result = crate::tx::engine::stage(crate::tx::engine::WriteRequest {
         source: crate::tx::engine::WriteSource::Operations(vec![op]),
         options,
-    })?;
+    })
+    .map_err(|err| rewrite_single_declared_path(err, &engine_paths, display_path))?;
     execution_result_to_edit_result(result, mode, cwd, action, dest_path, display_path)
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+fn rewrite_single_declared_path(
+    err: anyhow::Error,
+    engine_paths: &[String],
+    display_path: Option<&str>,
+) -> anyhow::Error {
+    let Some(display) = display_path else {
+        return err;
+    };
+    if engine_paths.len() != 1 {
+        return err;
+    }
+    file::name_error_with_caller_path(err, &engine_paths[0], Path::new(display))
 }
 
 /// Map `ApplyMode` to `GlobalFlags` with the appropriate apply/check settings.
