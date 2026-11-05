@@ -11,6 +11,14 @@ present (applied to the GitHub Release body by the host job). Versioned
 sections below are managed by release-please.
 
 
+## [0.37.7](https://github.com/patchloom/patchloom/compare/patchloom-v0.37.6...patchloom-v0.37.7) (2026-11-05)
+
+
+### Bug Fixes
+
+* name the caller path when append refuses a binary file ([#2723](https://github.com/patchloom/patchloom/issues/2723)) ([71e9bb0](https://github.com/patchloom/patchloom/commit/71e9bb02b0f5f7314cf364166fe512c462e2f674)), closes [#2720](https://github.com/patchloom/patchloom/issues/2720)
+* name the caller path when file ops refuse ([#2725](https://github.com/patchloom/patchloom/issues/2725)) ([4f82395](https://github.com/patchloom/patchloom/commit/4f823952e4621050da48cb1bce0691d125b70903))
+
 ## [0.37.6](https://github.com/patchloom/patchloom/compare/patchloom-v0.37.5...patchloom-v0.37.6) (2026-10-24)
 
 
