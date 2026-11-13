@@ -74,7 +74,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
       - name: Checkout
@@ -103,7 +103,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
       - name: Disable autocrlf
@@ -176,7 +176,7 @@ jobs:
     timeout-minutes: 50
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
       - name: Disable autocrlf
@@ -326,7 +326,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
       - name: Checkout
@@ -355,7 +355,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
       - name: Checkout
@@ -387,7 +387,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
       - name: Checkout
@@ -422,7 +422,7 @@ jobs:
       code-quality: write
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
       - name: Checkout
@@ -437,7 +437,7 @@ jobs:
           components: llvm-tools-preview
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@b80e2bb2635f28eb98b9fce1e2f0887e1535c6b2 # v2
+        uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2
         with:
           tool: cargo-llvm-cov
 
@@ -568,7 +568,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
       - name: Checkout
@@ -580,7 +580,7 @@ jobs:
         uses: ./.github/actions/setup-rust
 
       - name: Install hyperfine
-        uses: taiki-e/install-action@b80e2bb2635f28eb98b9fce1e2f0887e1535c6b2 # v2
+        uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2
         with:
           tool: hyperfine@1.20.0
 
@@ -701,7 +701,7 @@ jobs:
           - fuzz_shell_token
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
       - name: Checkout
@@ -720,7 +720,7 @@ jobs:
           cache-on-failure: "true"
 
       - name: Install cargo-fuzz
-        uses: taiki-e/install-action@b80e2bb2635f28eb98b9fce1e2f0887e1535c6b2 # v2
+        uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2
         with:
           tool: cargo-fuzz
 
@@ -742,7 +742,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
       - name: Checkout
@@ -770,7 +770,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
       - name: Checkout
@@ -793,7 +793,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
       - name: Checkout
@@ -802,7 +802,7 @@ jobs:
           persist-credentials: false
 
       - name: Install cargo-audit
-        uses: taiki-e/install-action@b80e2bb2635f28eb98b9fce1e2f0887e1535c6b2 # v2
+        uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2
         with:
           tool: cargo-audit
 
@@ -822,7 +822,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
       - name: Checkout
@@ -831,7 +831,7 @@ jobs:
           persist-credentials: false
 
       - name: Install cargo-deny
-        uses: taiki-e/install-action@b80e2bb2635f28eb98b9fce1e2f0887e1535c6b2 # v2
+        uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2
         with:
           tool: cargo-deny
 
@@ -849,7 +849,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
       - name: Checkout
@@ -867,7 +867,7 @@ jobs:
           sudo tar -xzf "/tmp/${archive}" -C /usr/local/bin actionlint
           actionlint -version
       - name: Install zizmor
-        uses: taiki-e/install-action@b80e2bb2635f28eb98b9fce1e2f0887e1535c6b2 # v2.90.0
+        uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
         with:
           tool: zizmor@1.30.0
       - name: actionlint
