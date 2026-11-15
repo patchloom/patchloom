@@ -100,11 +100,17 @@ pub fn safe_canonicalize(path: &Path) -> std::io::Result<PathBuf> {
 /// but [`Path::starts_with`] does not treat them as nested. Map local
 /// `X$` admin shares to `X:\` before the prefix check (fixrealloop R117/R127).
 fn path_is_under(path: &Path, root: &Path) -> bool {
-    if path.starts_with(root) {
-        return true;
+    // Clippy 1.100 needless_bool sees only this compare once the Windows
+    // block is cfg'd out. Keep the share and `\\?\` checks on Windows.
+    #[cfg(not(windows))]
+    {
+        path.starts_with(root)
     }
     #[cfg(windows)]
     {
+        if path.starts_with(root) {
+            return true;
+        }
         if let Some(mapped) = windows_local_drive_share_path(path) {
             if mapped.starts_with(root) {
                 return true;
@@ -122,8 +128,8 @@ fn path_is_under(path: &Path, root: &Path) -> bool {
                 return true;
             }
         }
+        false
     }
-    false
 }
 
 /// Prefer `C:\...` over `\\localhost\C$\...` so later open/backup/persist
