@@ -5,7 +5,7 @@
 //! the workspace root.
 //!
 //! Two-layer defense:
-//! 1. **Syntactic check** (no I/O): rejects `../` traversal that goes beyond root depth
+//! 1. **Syntactic check** (no I/O): rejects absolute components in a relative path
 //! 2. **Symlink-aware check**: canonicalizes and verifies the resolved path is contained
 //!
 //! ## Content vs entry containment (#2115)
@@ -387,7 +387,7 @@ impl std::error::Error for ContainmentError {
 ///
 /// Validates that paths stay within the workspace directory after
 /// symlink resolution. Two-layer defense:
-/// 1. Syntactic check (no I/O): rejects `../` traversal beyond root
+/// 1. Syntactic check (no I/O): rejects absolute components in a relative path
 /// 2. Symlink-aware check: canonicalizes and verifies containment
 #[derive(Debug, Clone)]
 pub struct PathGuard {
@@ -427,8 +427,9 @@ impl PathGuard {
             return self.check_resolved_absolute(path, p, &roots);
         }
 
-        // Syntactic depth-tracking check (no I/O). Relative always against primary root.
-        validate_relative_depth(path, p, &self.root)?;
+        // Relative paths are contained against the primary root only.
+        // `..` is judged after symlink resolution, not by lexical depth (#2466).
+        reject_absolute_components(path, p, &self.root)?;
 
         // Symlink-aware containment check (primary root).
         self.check_resolved_relative(path)
@@ -456,7 +457,7 @@ impl PathGuard {
             return self.check_entry_under_roots(path, p, &roots);
         }
 
-        validate_relative_depth(path, p, &self.root)?;
+        reject_absolute_components(path, p, &self.root)?;
         let joined = self.root.join(path);
         self.check_entry_under_roots(path, &joined, std::slice::from_ref(&self.canon_root))
     }
@@ -492,7 +493,9 @@ impl PathGuard {
             AbsolutePathPolicy::AllowAdditionalRoots(extra) => {
                 let mut allowed = vec![self.canon_root.clone()];
                 for r in extra {
-                    if let Ok(c) = safe_canonicalize(r) {
+                    // A scratch root may not exist yet. Keep the existing
+                    // ancestor plus the missing tail. No ancestor: omit.
+                    if let Ok(c) = canonicalize_or_ancestor(r) {
                         allowed.push(c);
                     }
                 }
@@ -659,36 +662,24 @@ impl PathGuardBuilder {
     }
 }
 
-/// Syntactic depth check: walk path components, reject if `../` takes
-/// depth below zero (escaping the root).
+/// Reject `RootDir` and `Prefix` on a path classified as relative.
+///
+/// Negative `..` depth is not an escape by itself. `../proj/src` is inside a
+/// workspace named `proj`, and a directory symlink can climb lexically
+/// negative and still resolve inside. Real escapes fail `path_is_under`
+/// after `canonicalize_or_ancestor` follows existing prefixes (#2466).
+/// Do not lexically collapse `..` before that follow.
 ///
 /// `root` is included in [`ContainmentError::Escaped`] so CLI `--contain`
-/// and MCP errors show which workspace was enforced (MPI cycle 16; previously
-/// the message always printed `workspace: ` with an empty root).
-fn validate_relative_depth(path: &str, p: &Path, root: &Path) -> Result<(), ContainmentError> {
-    let mut depth: i32 = 0;
-    for component in p.components() {
-        match component {
-            Component::ParentDir => {
-                depth -= 1;
-                if depth < 0 {
-                    return Err(ContainmentError::Escaped {
-                        path: path.to_string(),
-                        root: root.display().to_string(),
-                    });
-                }
-            }
-            Component::Normal(_) => {
-                depth += 1;
-            }
-            Component::CurDir => {}
-            _ => {
-                return Err(ContainmentError::Escaped {
-                    path: path.to_string(),
-                    root: root.display().to_string(),
-                });
-            }
-        }
+/// and MCP errors name the workspace that was enforced.
+fn reject_absolute_components(path: &str, p: &Path, root: &Path) -> Result<(), ContainmentError> {
+    if p.components()
+        .any(|component| matches!(component, Component::RootDir | Component::Prefix(_)))
+    {
+        return Err(ContainmentError::Escaped {
+            path: path.to_string(),
+            root: root.display().to_string(),
+        });
     }
     Ok(())
 }
