@@ -558,8 +558,129 @@ pub(crate) fn quote_plain_yaml11_binary(yaml: &str) -> String {
     out
 }
 
+/// Quote plain scalars that YAML 1.1 reads as another type.
+///
+/// `true`, `false`, `null`, `yes`, `no`, `on`, and `off` stay plain.
+/// `doc set` of the string `on` must remain `value: on` so a block
+/// sequence indent snapshot stays surgical. Underscore integers and
+/// ISO dates are quoted (#2487).
+pub(crate) fn quote_plain_yaml11_scalars(yaml: &str) -> String {
+    let b = yaml.as_bytes();
+    let mut out = String::with_capacity(yaml.len());
+    let mut i = 0;
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut escaped = false;
+    let mut in_comment = false;
+    while i < b.len() {
+        let c = b[i];
+        if c >= 128 {
+            let ch = yaml[i..].chars().next().expect("utf-8 boundary");
+            out.push(ch);
+            i += ch.len_utf8();
+            continue;
+        }
+        if c == b'\n' {
+            in_comment = false;
+        }
+        if in_double {
+            out.push(c as char);
+            if escaped {
+                escaped = false;
+            } else if c == b'\\' {
+                escaped = true;
+            } else if c == b'"' {
+                in_double = false;
+            }
+            i += 1;
+            continue;
+        }
+        if in_single {
+            out.push(c as char);
+            if c == b'\'' && i + 1 < b.len() && b[i + 1] == b'\'' {
+                out.push('\'');
+                i += 2;
+                continue;
+            }
+            if c == b'\'' {
+                in_single = false;
+            }
+            i += 1;
+            continue;
+        }
+        if in_comment {
+            out.push(c as char);
+            i += 1;
+            continue;
+        }
+        if c == b'"' {
+            in_double = true;
+            out.push('"');
+            i += 1;
+            continue;
+        }
+        if c == b'\'' {
+            in_single = true;
+            out.push('\'');
+            i += 1;
+            continue;
+        }
+        if c == b'#' {
+            in_comment = true;
+            out.push('#');
+            i += 1;
+            continue;
+        }
+        let signed = matches!(c, b'+' | b'-') && i + 1 < b.len() && b[i + 1].is_ascii_digit();
+        if (c.is_ascii_alphanumeric() || signed)
+            && (i == 0 || is_yaml_token_boundary(b[i - 1]))
+            && let Some(len) = plain_typed_scalar_len(&yaml[i..])
+        {
+            let end = i + len;
+            let token = &yaml[i..end];
+            let stopped = end >= b.len() || is_yaml11_scalar_stop(b[end]);
+            if stopped && plain_typed_scalar_needs_quote(token) {
+                // Double quotes match serde_yaml_ng's quoted strings.
+                out.push('"');
+                out.push_str(token);
+                out.push('"');
+                i = end;
+                continue;
+            }
+        }
+        out.push(c as char);
+        i += 1;
+    }
+    out
+}
+
+fn is_yaml11_scalar_stop(c: u8) -> bool {
+    c.is_ascii_whitespace() || matches!(c, b',' | b']' | b'}' | b'#')
+}
+
+fn plain_typed_scalar_len(s: &str) -> Option<usize> {
+    let b = s.as_bytes();
+    let mut i = 0;
+    while i < b.len() {
+        let c = b[i];
+        if c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-' | b':' | b'.' | b'+') {
+            i += 1;
+        } else {
+            break;
+        }
+    }
+    if i == 0 { None } else { Some(i) }
+}
+
+fn plain_typed_scalar_needs_quote(token: &str) -> bool {
+    is_yaml11_underscore_int(token) || is_yaml11_timestamp(token) || is_yaml11_sexagesimal(token)
+}
+
 fn is_yaml_token_boundary(c: u8) -> bool {
-    c.is_ascii_whitespace() || matches!(c, b':' | b'[' | b'{' | b',' | b']' | b'}' | b'-')
+    // Hyphen is part of a plain scalar (`pre-0b10`, `0b10-beta`), not a
+    // token edge. Treating it as one quoted only the `0b` slice and
+    // changed the parsed string.
+    c.is_ascii_whitespace() || matches!(c, b':' | b'[' | b'{' | b',' | b']' | b'}')
 }
 
 fn plain_binary_len(s: &str) -> Option<usize> {
@@ -752,6 +873,68 @@ mod tests {
         assert!(!needs_yaml_quoting("0b"));
         assert!(!needs_yaml_quoting("0b2"));
         assert!(!needs_yaml_quoting("box"));
+    }
+
+    #[test]
+    fn quote_plain_yaml11_binary_leaves_hyphenated_scalars() {
+        assert_eq!(
+            super::quote_plain_yaml11_binary("id: pre-0b10\n"),
+            "id: pre-0b10\n"
+        );
+        assert_eq!(
+            super::quote_plain_yaml11_binary("id: 0b10-beta\n"),
+            "id: 0b10-beta\n"
+        );
+        assert_eq!(
+            super::quote_plain_yaml11_binary("id: 0b10\n"),
+            "id: '0b10'\n"
+        );
+        assert_eq!(super::quote_plain_yaml11_binary("- 0b10\n"), "- '0b10'\n");
+    }
+
+    #[test]
+    fn quote_plain_yaml11_scalars_quotes_dates_and_underscore_ints() {
+        assert_eq!(super::quote_plain_yaml11_scalars("id: yes\n"), "id: yes\n");
+        assert_eq!(super::quote_plain_yaml11_scalars("id: NO\n"), "id: NO\n");
+        assert_eq!(super::quote_plain_yaml11_scalars("- on\n"), "- on\n");
+        assert_eq!(
+            super::quote_plain_yaml11_scalars("id: yesterday\n"),
+            "id: yesterday\n"
+        );
+        assert_eq!(
+            super::quote_plain_yaml11_scalars("id: pre-yes\n"),
+            "id: pre-yes\n"
+        );
+        assert_eq!(
+            super::quote_plain_yaml11_scalars("id: 2020-01-01\n"),
+            "id: \"2020-01-01\"\n"
+        );
+        assert_eq!(
+            super::quote_plain_yaml11_scalars("id: 2020-01-01T00:00:00Z\n"),
+            "id: \"2020-01-01T00:00:00Z\"\n"
+        );
+        assert_eq!(
+            super::quote_plain_yaml11_scalars("id: 1_000\n"),
+            "id: \"1_000\"\n"
+        );
+        assert_eq!(
+            super::quote_plain_yaml11_scalars("id: true\n"),
+            "id: true\n"
+        );
+        assert_eq!(
+            super::quote_plain_yaml11_scalars("id: null\n"),
+            "id: null\n"
+        );
+        assert_eq!(
+            super::quote_plain_yaml11_scalars("id: 5432\n"),
+            "id: 5432\n"
+        );
+        assert_eq!(
+            super::quote_plain_yaml11_scalars("id: \"yes\"\n"),
+            "id: \"yes\"\n"
+        );
+        assert_eq!(super::quote_plain_yaml11_scalars("# yes\n"), "# yes\n");
+        assert_eq!(super::quote_plain_yaml11_scalars("yes: 1\n"), "yes: 1\n");
     }
 
     #[test]
