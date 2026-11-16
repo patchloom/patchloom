@@ -640,9 +640,11 @@ pub(crate) fn quote_plain_yaml11_scalars(yaml: &str) -> String {
             let token = &yaml[i..end];
             let stopped = end >= b.len() || is_yaml11_scalar_stop(b[end]);
             if stopped && plain_typed_scalar_needs_quote(token) {
-                out.push('\'');
+                // Double quotes match serde_yaml_ng and the doc-set
+                // snapshot that already allows `value: "on"`.
+                out.push('"');
                 out.push_str(token);
-                out.push('\'');
+                out.push('"');
                 i = end;
                 continue;
             }
@@ -899,10 +901,13 @@ mod tests {
     fn quote_plain_yaml11_scalars_quotes_bool_words_dates_and_underscore_ints() {
         assert_eq!(
             super::quote_plain_yaml11_scalars("id: yes\n"),
-            "id: 'yes'\n"
+            "id: \"yes\"\n"
         );
-        assert_eq!(super::quote_plain_yaml11_scalars("id: NO\n"), "id: 'NO'\n");
-        assert_eq!(super::quote_plain_yaml11_scalars("- on\n"), "- 'on'\n");
+        assert_eq!(
+            super::quote_plain_yaml11_scalars("id: NO\n"),
+            "id: \"NO\"\n"
+        );
+        assert_eq!(super::quote_plain_yaml11_scalars("- on\n"), "- \"on\"\n");
         assert_eq!(
             super::quote_plain_yaml11_scalars("id: yesterday\n"),
             "id: yesterday\n"
@@ -913,15 +918,15 @@ mod tests {
         );
         assert_eq!(
             super::quote_plain_yaml11_scalars("id: 2020-01-01\n"),
-            "id: '2020-01-01'\n"
+            "id: \"2020-01-01\"\n"
         );
         assert_eq!(
             super::quote_plain_yaml11_scalars("id: 2020-01-01T00:00:00Z\n"),
-            "id: '2020-01-01T00:00:00Z'\n"
+            "id: \"2020-01-01T00:00:00Z\"\n"
         );
         assert_eq!(
             super::quote_plain_yaml11_scalars("id: 1_000\n"),
-            "id: '1_000'\n"
+            "id: \"1_000\"\n"
         );
         assert_eq!(
             super::quote_plain_yaml11_scalars("id: true\n"),

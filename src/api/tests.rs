@@ -10622,7 +10622,7 @@ fn doc_set_keeps_yaml_sequence_item_indent() {
     assert!(r.changed);
     assert_eq!(
         r.new_content,
-        "env:\n  - name: FEATURE_FLAG\n    value: on\n"
+        "env:\n  - name: FEATURE_FLAG\n    value: \"on\"\n"
     );
     assert!(
         !r.style_changed,
