@@ -472,6 +472,18 @@ impl PathGuard {
         &self.canon_root
     }
 
+    /// Whether `path` resolves inside this workspace.
+    ///
+    /// Missing tails stay on their existing ancestor. A canonicalize
+    /// failure is not inside. Unlike [`Path::starts_with`], `..` after
+    /// a real directory symlink is followed before the prefix check.
+    pub(crate) fn resolved_is_inside(&self, path: &Path) -> bool {
+        match canonicalize_or_ancestor(path) {
+            Ok(canon) => path_is_under(&canon, &self.canon_root),
+            Err(_) => false,
+        }
+    }
+
     /// Returns true if the path would be allowed under the current policy
     /// (dry-run, no error details). Follow semantics ([`check_path`]).
     pub fn would_allow(&self, path: &str) -> bool {

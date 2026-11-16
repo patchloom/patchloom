@@ -124,11 +124,11 @@ pub fn execute_plan_direct(
         // workspace root (MCP and library callers both honor plan.cwd when
         // contained; escapes must fail closed).
         if plan.cwd.is_some() {
-            // Must use the same canonicalize as PathGuard (dunce) so Windows
-            // UNC prefixes do not break starts_with against canon_root (#1931).
-            let canon_cwd = crate::containment::safe_canonicalize(&effective_cwd)
-                .unwrap_or_else(|_| effective_cwd.clone());
-            if !canon_cwd.starts_with(g.canon_root()) {
+            // Follow existing prefixes before `..`. A lexical starts_with
+            // fallback treats `<root>/link/../../outside/new` as inside
+            // when `new` does not exist yet (#1931 still uses dunce via
+            // canonicalize_or_ancestor).
+            if !g.resolved_is_inside(&effective_cwd) {
                 return Err(crate::fallback::EditError::guard_rejected(format!(
                     "plan cwd '{}' escapes workspace root '{}'",
                     effective_cwd.display(),
@@ -696,6 +696,86 @@ mod tests {
             Some(crate::fallback::EditErrorKind::GuardRejected),
             "plan cwd escape must peel as GuardRejected: {err}"
         );
+    }
+
+    #[test]
+    fn execute_plan_direct_rejects_lexical_dotdot_cwd_with_guard() {
+        use crate::containment::{AbsolutePathPolicy, PathGuard};
+
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir.path().join("test.txt"), "content").unwrap();
+        let guard = PathGuard::new(dir.path().to_path_buf(), AbsolutePathPolicy::Reject).unwrap();
+        let plan = crate::plan::Plan {
+            version: 1,
+            cwd: Some("sub/../../outside".into()),
+            operations: vec![crate::plan::Operation::Read {
+                path: "test.txt".into(),
+                lines: None,
+                offset: None,
+                limit: None,
+                start_line: None,
+                end_line: None,
+            }],
+            write_policy: None,
+            strict: None,
+            format: None,
+            validate: None,
+            verify: None,
+            for_each: None,
+            agent_preset: false,
+            expected_sha256: None,
+        };
+
+        let result = execute_plan_direct(plan, dir.path(), Some(&guard));
+        let err = result.expect_err("lexical .. cwd must not pass the guard");
+        assert_eq!(
+            crate::fallback::edit_error_kind(&err),
+            Some(crate::fallback::EditErrorKind::GuardRejected),
+            "lexical .. plan cwd must peel as GuardRejected: {err}"
+        );
+    }
+
+    #[test]
+    fn execute_plan_direct_allows_missing_cwd_inside_workspace() {
+        use crate::containment::{AbsolutePathPolicy, PathGuard};
+
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir.path().join("test.txt"), "content").unwrap();
+        let guard = PathGuard::new(dir.path().to_path_buf(), AbsolutePathPolicy::Reject).unwrap();
+        let plan = crate::plan::Plan {
+            version: 1,
+            cwd: Some("newsub".into()),
+            operations: vec![crate::plan::Operation::Read {
+                path: "missing.txt".into(),
+                lines: None,
+                offset: None,
+                limit: None,
+                start_line: None,
+                end_line: None,
+            }],
+            write_policy: None,
+            strict: None,
+            format: None,
+            validate: None,
+            verify: None,
+            for_each: None,
+            agent_preset: false,
+            expected_sha256: None,
+        };
+
+        let result = execute_plan_direct(plan, dir.path(), Some(&guard));
+        match result {
+            Err(err) => assert_ne!(
+                crate::fallback::edit_error_kind(&err),
+                Some(crate::fallback::EditErrorKind::GuardRejected),
+                "in-workspace missing cwd must not be an escape: {err}"
+            ),
+            Ok(output) => assert_ne!(
+                output.error_kind.as_deref(),
+                Some("guard_rejected"),
+                "in-workspace missing cwd must not be an escape: {output:?}"
+            ),
+        }
     }
 
     // ---- CommitError ----
