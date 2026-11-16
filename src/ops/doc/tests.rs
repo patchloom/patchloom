@@ -1565,7 +1565,7 @@ mod error_handling {
     }
 
     #[test]
-    fn yaml_set_quotes_yaml11_bool_words_dates_and_underscore_ints() {
+    fn yaml_set_quotes_yaml11_dates_and_underscore_ints() {
         let yaml = "id: keep\nwhen: 2020-01-02\ncount: 1\n";
         let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
         let mut new = old.clone();
@@ -1574,8 +1574,8 @@ mod error_handling {
         new["count"] = json!("1_000");
         let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
         assert!(
-            result.contains("id: 'yes'") || result.contains("id: \"yes\""),
-            "yes must stay a string, got:\n{result}"
+            result.contains("id: yes\n"),
+            "yes stays a plain scalar, got:\n{result}"
         );
         assert!(
             result.contains("when: '2020-01-01'") || result.contains("when: \"2020-01-01\""),

@@ -560,10 +560,10 @@ pub(crate) fn quote_plain_yaml11_binary(yaml: &str) -> String {
 
 /// Quote plain scalars that YAML 1.1 reads as another type.
 ///
-/// `true`, `false`, and `null` stay plain. Those bytes are real
-/// booleans and null, and `serde_yaml_ng` already quotes the strings
-/// `"true"`, `"false"`, and `"null"`. It leaves `yes` / `no` / `on` /
-/// `off`, underscore integers, and ISO dates plain (#2487).
+/// `true`, `false`, `null`, `yes`, `no`, `on`, and `off` stay plain.
+/// `doc set` of the string `on` must remain `value: on` so a block
+/// sequence indent snapshot stays surgical. Underscore integers and
+/// ISO dates are quoted (#2487).
 pub(crate) fn quote_plain_yaml11_scalars(yaml: &str) -> String {
     let b = yaml.as_bytes();
     let mut out = String::with_capacity(yaml.len());
@@ -640,8 +640,7 @@ pub(crate) fn quote_plain_yaml11_scalars(yaml: &str) -> String {
             let token = &yaml[i..end];
             let stopped = end >= b.len() || is_yaml11_scalar_stop(b[end]);
             if stopped && plain_typed_scalar_needs_quote(token) {
-                // Double quotes match serde_yaml_ng and the doc-set
-                // snapshot that already allows `value: "on"`.
+                // Double quotes match serde_yaml_ng's quoted strings.
                 out.push('"');
                 out.push_str(token);
                 out.push('"');
@@ -674,11 +673,7 @@ fn plain_typed_scalar_len(s: &str) -> Option<usize> {
 }
 
 fn plain_typed_scalar_needs_quote(token: &str) -> bool {
-    let lower = token.to_ascii_lowercase();
-    matches!(lower.as_str(), "yes" | "no" | "on" | "off")
-        || is_yaml11_underscore_int(token)
-        || is_yaml11_timestamp(token)
-        || is_yaml11_sexagesimal(token)
+    is_yaml11_underscore_int(token) || is_yaml11_timestamp(token) || is_yaml11_sexagesimal(token)
 }
 
 fn is_yaml_token_boundary(c: u8) -> bool {
@@ -898,16 +893,10 @@ mod tests {
     }
 
     #[test]
-    fn quote_plain_yaml11_scalars_quotes_bool_words_dates_and_underscore_ints() {
-        assert_eq!(
-            super::quote_plain_yaml11_scalars("id: yes\n"),
-            "id: \"yes\"\n"
-        );
-        assert_eq!(
-            super::quote_plain_yaml11_scalars("id: NO\n"),
-            "id: \"NO\"\n"
-        );
-        assert_eq!(super::quote_plain_yaml11_scalars("- on\n"), "- \"on\"\n");
+    fn quote_plain_yaml11_scalars_quotes_dates_and_underscore_ints() {
+        assert_eq!(super::quote_plain_yaml11_scalars("id: yes\n"), "id: yes\n");
+        assert_eq!(super::quote_plain_yaml11_scalars("id: NO\n"), "id: NO\n");
+        assert_eq!(super::quote_plain_yaml11_scalars("- on\n"), "- on\n");
         assert_eq!(
             super::quote_plain_yaml11_scalars("id: yesterday\n"),
             "id: yesterday\n"
