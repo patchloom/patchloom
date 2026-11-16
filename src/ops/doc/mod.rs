@@ -384,7 +384,7 @@ pub fn serialize_value_preserving(
                 return serialize_multi_document_yaml(original_content, old_value, new_value);
             }
             if let Some(result) = try_preserve_yaml(original_content, old_value, new_value)? {
-                return Ok(yaml_splice::quote_plain_yaml11_scalars(&result));
+                return Ok(result);
             }
             // Fall back to non-preserving (with hoisted comments).
             if old_value == new_value {
@@ -1315,7 +1315,7 @@ fn serialize_single_yaml_document(
     if !original_body.trim().is_empty()
         && let Some(result) = try_preserve_yaml(original_body, old_value, new_value)?
     {
-        return Ok(yaml_splice::quote_plain_yaml11_scalars(&result));
+        return Ok(result);
     }
     let body = serialize_value(new_value, &FileFormat::Yaml)?;
     if original_body.is_empty() {

@@ -1591,6 +1591,24 @@ mod error_handling {
         assert_eq!(reparsed["count"], json!("1_000"));
     }
 
+    #[test]
+    fn yaml_unrelated_edit_leaves_plain_date() {
+        let yaml = "id: keep\nwhen: 2020-01-01\n";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["id"] = json!("other");
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert!(
+            result.contains("when: 2020-01-01"),
+            "untouched date must stay plain, got:\n{result}"
+        );
+        assert!(
+            !result.contains("when: \""),
+            "untouched date was quoted:\n{result}"
+        );
+        assert!(result.contains("id: other"), "{result}");
+    }
+
     /// Unrelated field edit must keep anchors, aliases, and merge keys instead of
     /// expanding every map into a full copy (agent configs use defaults via <<).
     #[test]

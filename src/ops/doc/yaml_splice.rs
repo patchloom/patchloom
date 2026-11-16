@@ -676,6 +676,20 @@ fn plain_typed_scalar_needs_quote(token: &str) -> bool {
     is_yaml11_underscore_int(token) || is_yaml11_timestamp(token) || is_yaml11_sexagesimal(token)
 }
 
+/// Double-quoted form when `s` is a whole YAML 1.1 typed scalar.
+///
+/// Surgical edits use this for the written value only. A whole-file
+/// pass would rewrite dates the caller did not change.
+pub(crate) fn yaml11_typed_string_literal(s: &str) -> Option<String> {
+    if !plain_typed_scalar_needs_quote(s) {
+        return None;
+    }
+    Some(match serde_json::to_string(s) {
+        Ok(quoted) => quoted,
+        Err(_) => format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\"")),
+    })
+}
+
 fn is_yaml_token_boundary(c: u8) -> bool {
     // Hyphen is part of a plain scalar (`pre-0b10`, `0b10-beta`), not a
     // token edge. Treating it as one quoted only the `0b` slice and
