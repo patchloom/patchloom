@@ -938,12 +938,19 @@ fn format_block_replacement(indent: &str, header: &str, body: &str) -> String {
 /// `serde_yaml_ng` handles indentation of block sequences/mappings.
 fn json_to_yaml_node(val: &serde_json::Value) -> anyhow::Result<yaml_edit::YamlNode> {
     use std::str::FromStr;
-    let wrapper = serde_json::json!({ "__v__": val });
-    let yaml_text = serde_yaml_ng::to_string(&wrapper).map_err(|e| {
-        anyhow::Error::new(crate::exit::InvalidInputError {
-            msg: format!("YAML serialization failed: {e}"),
-        })
-    })?;
+    let yaml_text = if let Some(quoted) = val
+        .as_str()
+        .and_then(super::yaml_splice::yaml11_typed_string_literal)
+    {
+        format!("__v__: {quoted}\n")
+    } else {
+        let wrapper = serde_json::json!({ "__v__": val });
+        serde_yaml_ng::to_string(&wrapper).map_err(|e| {
+            anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: format!("YAML serialization failed: {e}"),
+            })
+        })?
+    };
     let doc = yaml_edit::Document::from_str(&yaml_text).map_err(|e| {
         anyhow::Error::new(crate::exit::ParseErrorError {
             msg: format!("YAML CST re-parse failed: {e}"),
