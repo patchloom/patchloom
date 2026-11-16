@@ -743,7 +743,8 @@ pub const PARSE_ERROR: u8 = 4;
 pub const AMBIGUOUS: u8 = 5;
 /// A `validate` step failed (tx lifecycle).
 pub const VALIDATION_FAILED: u8 = 6;
-/// Strict-mode rollback triggered by a failed `format` or `validate` step.
+/// Rollback. A strict-mode `format` or `validate` step failed, or a write
+/// was restored from backup after the mutation failed (`error_kind`: `rollback`).
 pub const ROLLBACK: u8 = 7;
 /// Patch merge produced conflict markers.
 pub const CONFLICTS: u8 = 8;

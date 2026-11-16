@@ -212,14 +212,14 @@ AST tools so `list_tools` stays honest about what is callable.
 | `doc_get` | Read a value by selector path (read-only) |
 | `doc_query` | Query a structured file: has, keys, len, select, or flatten (read-only). Selector optional for keys/len (defaults to `.`). |
 | `doc_diff` | Compare two structured files (read-only) |
-| `search_files` | Search text files for a pattern, including literal, case-insensitive, count, file-only (`files_with_matches` / `files_without_match`), multiline, invert-match, and assert-count modes. Binary and invalid UTF-8 files are skipped (read-only) |
+| `search_files` | Search text files for a pattern, including literal, case-insensitive, count, file-only (`files_with_matches` / `files_without_match`), multiline, invert-match, and assert-count modes. Binary and invalid UTF-8 files are skipped on a directory walk. One explicit non-text path fails with `invalid_input` (read-only) |
 | `list_files` | Bounded directory inventory with the same ignore/exclude/glob rules as search (read-only). Prefer this over a second generic filesystem MCP for list/tree. Optional `max_depth` prunes the walk per root (does not enter deeper dirs). `max_results` (default 500) still counts all in-depth matches then truncates and sets `truncated` / `total_matched`. CLI pair: `list-files` |
 | `git_status` | Show uncommitted file changes vs git HEAD (read-only) |
 | `server_info` | Return server identity and workspace root: `cwd`, `surface` (`full`\|`core`), `tool_count`, package `version`, and MCP `protocol_version` (read-only). Use `cwd` before relative path ops |
 | `undo_list` | List apply-mode backup sessions (including nested monorepo roots). Empty tree is `error_kind: no_matches` |
 | `undo_restore` | Preview (default) or restore (`apply: true`) a backup session. Optional `path` restores only those files. Same PathGuard as other MCP writes |
 | `read_file` | Read file contents with optional line range |
-| `replace_text` | Replace text in a text file (literal or regex). Binary and invalid UTF-8 files are skipped |
+| `replace_text` | Replace text in a text file (literal or regex). Binary and invalid UTF-8 files are skipped on a directory walk. One explicit non-text path fails with `invalid_input` |
 | `apply_fragment` | Freeform fragment at a required after/before/old anchor; strips Morph-style `// ... existing code ...` markers (no cloud merge). Prefer when the agent has a snippet plus a known placement |
 | `md_upsert_bullet` | Add a bullet under a markdown heading |
 | `md_table_append` | Append a row to a markdown table |
@@ -230,7 +230,7 @@ AST tools so `list_tools` stays honest about what is callable.
 | `md_move_section` | Move a heading section through next same-or-higher heading (same-file or cross-file) |
 | `md_dedupe_headings` | Remove later whole sections with a duplicate heading (second body discarded) |
 | `md_lint` | Lint an AGENTS.md file; returns `{ok, path, issue_count, issues}` (CLI lint-agents --json parity). Branch on `ok`; isError stays false when issues are present |
-| `fix_whitespace` | Fix whitespace and line endings in a text file. Binary and invalid UTF-8 files are skipped |
+| `fix_whitespace` | Fix whitespace and line endings in a text file. Binary and invalid UTF-8 files are skipped on a directory walk. One explicit non-text path fails with `invalid_input` |
 | `create_file` | Create a new file with content |
 | `notebook_edit` | Replace one Jupyter cell's source by its cell id. The body is one string, stored as a line array. Does not run the cell |
 | `append_file` | Append content to an existing file |
@@ -486,7 +486,7 @@ The MCP server enforces path containment: every path must resolve inside the
 working directory where `patchloom mcp-server` was started. Relative paths are
 preferred. Absolute paths that resolve **inside** that workspace are allowed
 (agents often concatenate `server_info.cwd` with a relative path). `../`
-traversal, absolute paths outside the workspace, and symlinks that escape the
+escapes, absolute paths outside the workspace, and symlinks that escape the
 workspace are rejected. This prevents an agent from editing files outside the
 project.
 

@@ -907,3 +907,113 @@ fn dotdot_in_nonexistent_path_rejected_with_additional_roots() {
         result,
     );
 }
+
+/// Missing extra allow-roots stay on the allowlist via their existing ancestor.
+#[test]
+fn missing_extra_allow_root_accepts_paths_under_it() {
+    let parent = tempfile::TempDir::new().unwrap();
+    let workspace = parent.path().join("ws");
+    fs::create_dir(&workspace).unwrap();
+    let scratch = parent.path().join("scratch");
+    assert!(
+        !scratch.exists(),
+        "scratch dir must not exist yet: {}",
+        scratch.display()
+    );
+
+    let guard = PathGuard::builder(workspace)
+        .allow_root(&scratch)
+        .build()
+        .expect("a missing extra root must not fail PathGuard::build");
+
+    let file = scratch.join("nested").join("file.txt");
+    let resolved = guard
+        .check_path(file.to_str().expect("utf-8 temp path"))
+        .expect("absolute file under a missing extra root must be allowed");
+    let expected = safe_canonicalize(parent.path())
+        .expect("temp parent exists")
+        .join("scratch")
+        .join("nested")
+        .join("file.txt");
+    assert_eq!(
+        resolved, expected,
+        "resolved path must use the canonical ancestor, not the original spelling"
+    );
+
+    let outside = parent.path().join("outside").join("nope.txt");
+    let err = guard
+        .check_path(outside.to_str().expect("utf-8 temp path"))
+        .expect_err("file outside the scratch root must be rejected");
+    assert!(
+        matches!(err, ContainmentError::Escaped { .. }),
+        "expected Escaped, got {err:?}"
+    );
+}
+
+/// `../<dirname>/<file>` climbs out and resolves back inside the workspace.
+#[test]
+fn relative_dotdot_reentering_workspace_is_allowed() {
+    let parent = tempfile::TempDir::new().unwrap();
+    let ws = parent.path().join("proj");
+    fs::create_dir_all(ws.join("src")).unwrap();
+    let file = ws.join("src").join("lib.rs");
+    fs::write(&file, "ok").unwrap();
+    let expected = safe_canonicalize(&file).expect("workspace file exists");
+    let guard = PathGuard::new(ws, AbsolutePathPolicy::Reject).unwrap();
+
+    let resolved = guard
+        .check_path("../proj/src/lib.rs")
+        .expect("climb that resolves back inside the workspace must be allowed");
+    assert_eq!(resolved, expected);
+    let entry = guard
+        .check_path_entry("../proj/src/lib.rs")
+        .expect("entry mode must allow the same in-workspace climb");
+    assert_eq!(entry, expected);
+
+    let err = guard
+        .check_path("../../secret.txt")
+        .expect_err("a real relative escape must stay rejected");
+    assert!(
+        matches!(err, ContainmentError::Escaped { .. }),
+        "expected Escaped, got {err:?}"
+    );
+    let err = guard
+        .check_path_entry("../../secret.txt")
+        .expect_err("entry mode must reject a real relative escape");
+    assert!(
+        matches!(err, ContainmentError::Escaped { .. }),
+        "expected Escaped, got {err:?}"
+    );
+}
+
+/// A directory symlink to a nested dir, then enough `..` to go lexically
+/// negative, still resolves inside. Collapsing `..` before following `link`
+/// would land outside the workspace (#2466).
+#[cfg(unix)]
+#[test]
+fn relative_dotdot_through_dir_symlink_reenters_workspace() {
+    use std::os::unix::fs::symlink;
+    let parent = tempfile::TempDir::new().unwrap();
+    let ws = parent.path().join("proj");
+    let nested = ws.join("nested").join("inner");
+    fs::create_dir_all(&nested).unwrap();
+    let file = nested.join("file.txt");
+    fs::write(&file, "ok").unwrap();
+    symlink("nested/inner", ws.join("link")).unwrap();
+    let expected = safe_canonicalize(&file).expect("nested file exists");
+    let guard = PathGuard::new(ws, AbsolutePathPolicy::Reject).unwrap();
+
+    let resolved = guard
+        .check_path("link/../../nested/inner/file.txt")
+        .expect("symlink climb that re-enters the workspace must be allowed");
+    assert_eq!(resolved, expected);
+    assert!(
+        resolved.starts_with(guard.canon_root()),
+        "resolved {resolved:?} must stay under {:?}",
+        guard.canon_root()
+    );
+    let entry = guard
+        .check_path_entry("link/../../nested/inner/file.txt")
+        .expect("entry mode must allow the same symlink climb");
+    assert_eq!(entry, expected);
+}
