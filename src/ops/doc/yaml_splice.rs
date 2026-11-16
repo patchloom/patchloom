@@ -559,7 +559,10 @@ pub(crate) fn quote_plain_yaml11_binary(yaml: &str) -> String {
 }
 
 fn is_yaml_token_boundary(c: u8) -> bool {
-    c.is_ascii_whitespace() || matches!(c, b':' | b'[' | b'{' | b',' | b']' | b'}' | b'-')
+    // Hyphen is part of a plain scalar (`pre-0b10`, `0b10-beta`), not a
+    // token edge. Treating it as one quoted only the `0b` slice and
+    // changed the parsed string.
+    c.is_ascii_whitespace() || matches!(c, b':' | b'[' | b'{' | b',' | b']' | b'}')
 }
 
 fn plain_binary_len(s: &str) -> Option<usize> {
@@ -752,6 +755,23 @@ mod tests {
         assert!(!needs_yaml_quoting("0b"));
         assert!(!needs_yaml_quoting("0b2"));
         assert!(!needs_yaml_quoting("box"));
+    }
+
+    #[test]
+    fn quote_plain_yaml11_binary_leaves_hyphenated_scalars() {
+        assert_eq!(
+            super::quote_plain_yaml11_binary("id: pre-0b10\n"),
+            "id: pre-0b10\n"
+        );
+        assert_eq!(
+            super::quote_plain_yaml11_binary("id: 0b10-beta\n"),
+            "id: 0b10-beta\n"
+        );
+        assert_eq!(
+            super::quote_plain_yaml11_binary("id: 0b10\n"),
+            "id: '0b10'\n"
+        );
+        assert_eq!(super::quote_plain_yaml11_binary("- 0b10\n"), "- '0b10'\n");
     }
 
     #[test]
