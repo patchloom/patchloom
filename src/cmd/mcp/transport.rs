@@ -37,7 +37,7 @@ fn core_server_instructions() -> String {
          Explore with list_files/search_files/read_file (prefer relative paths); shell \
          cat/find/sed only for build/test unless the user overrides. Do not also install \
          a generic filesystem MCP for list+edit. MCP allows absolute paths only when they \
-         resolve inside the workspace; `../` and outside paths are rejected.\n\n\
+         resolve inside the workspace; `../` escapes and outside paths are rejected.\n\n\
          Core tools:\n\
          - read_file, search_files, list_files: inspect, find, and inventory files\n\
          - replace_text, batch_replace: literal/regex text edits\n\

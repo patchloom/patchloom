@@ -155,7 +155,7 @@ pub(crate) fn agent_rules_core_body(version: &str, show_cli: bool, show_mcp: boo
         out.push_str(
             "You have MCP tools for file reads, edits, and searches. Prefer paths \
 relative to the MCP workspace; absolute paths are allowed only when they resolve \
-inside the workspace (`../` and outside-workspace paths are rejected).\n\n",
+inside the workspace (`../` escapes and outside-workspace paths are rejected).\n\n",
         );
     } else if show_cli {
         out.push_str(
@@ -255,6 +255,10 @@ mod tests {
             body.len()
         );
         assert!(body.contains("surface=core"));
+        assert!(
+            body.contains("`../` escapes"),
+            "core rules must not say every `../` is rejected"
+        );
     }
 
     #[test]
