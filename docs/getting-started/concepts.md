@@ -160,7 +160,7 @@ Every command returns a specific exit code:
 | 4 | Parse error in input |
 | 5 | Ambiguous (multiple replace matches, or stale patch context) |
 | 6 | Validation failed (writes may remain) |
-| 7 | Rollback (strict mode, no writes remain) |
+| 7 | Rollback (strict format/validate, or a write restored from backup) |
 | 8 | Patch merge conflicts detected (apply blocked unless `--allow-conflicts`) |
 | 9 | Tx operation staging failure (`operation_failed`) |
 
