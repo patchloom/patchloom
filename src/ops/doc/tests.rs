@@ -1564,6 +1564,33 @@ mod error_handling {
         assert_eq!(reparsed[1]["spec"]["ports"][0]["port"], json!(80));
     }
 
+    #[test]
+    fn yaml_set_quotes_yaml11_bool_words_dates_and_underscore_ints() {
+        let yaml = "id: keep\nwhen: 2020-01-02\ncount: 1\n";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["id"] = json!("yes");
+        new["when"] = json!("2020-01-01");
+        new["count"] = json!("1_000");
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert!(
+            result.contains("id: 'yes'") || result.contains("id: \"yes\""),
+            "yes must stay a string, got:\n{result}"
+        );
+        assert!(
+            result.contains("when: '2020-01-01'") || result.contains("when: \"2020-01-01\""),
+            "date must stay a string, got:\n{result}"
+        );
+        assert!(
+            result.contains("count: '1_000'") || result.contains("count: \"1_000\""),
+            "underscore int must stay a string, got:\n{result}"
+        );
+        let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
+        assert_eq!(reparsed["id"], json!("yes"));
+        assert_eq!(reparsed["when"], json!("2020-01-01"));
+        assert_eq!(reparsed["count"], json!("1_000"));
+    }
+
     /// Unrelated field edit must keep anchors, aliases, and merge keys instead of
     /// expanding every map into a full copy (agent configs use defaults via <<).
     #[test]
