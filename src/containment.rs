@@ -347,6 +347,19 @@ pub enum ContainmentError {
         root: String,
     },
 
+    /// The checked path is outside every resolved root, and at least one
+    /// extra allow-root could not be resolved. `root` is the primary
+    /// workspace. `unresolved` names each dropped allow-root and the I/O
+    /// error, so this is distinct from a plain [`Self::Escaped`] (#2735).
+    UnresolvedAllowRoot {
+        /// The offending path.
+        path: String,
+        /// The primary workspace root.
+        root: String,
+        /// Extra allow-roots that could not be resolved, in policy order.
+        unresolved: Vec<FailedAllowRoot>,
+    },
+
     /// Failed to canonicalize a path (I/O error).
     Canonicalize {
         /// The path that failed to canonicalize.
@@ -367,6 +380,17 @@ impl std::fmt::Display for ContainmentError {
                     "path escapes workspace directory: {path} (workspace: {root})"
                 )
             }
+            ContainmentError::UnresolvedAllowRoot {
+                path,
+                root,
+                unresolved,
+            } => {
+                write!(
+                    f,
+                    "path escapes workspace directory: {path} (workspace: {root}); "
+                )?;
+                write_unresolved_allow_roots(f, unresolved)
+            }
             ContainmentError::Canonicalize { path, source } => {
                 write!(f, "failed to canonicalize path: {path}: {source}")
             }
@@ -374,10 +398,41 @@ impl std::fmt::Display for ContainmentError {
     }
 }
 
+/// One extra allow-root that could not be resolved to an existing ancestor.
+#[derive(Debug)]
+pub struct FailedAllowRoot {
+    /// The allow-root path as configured on the guard.
+    pub path: String,
+    /// Why that path could not be resolved.
+    pub source: std::io::Error,
+}
+
+fn write_unresolved_allow_roots(
+    f: &mut std::fmt::Formatter<'_>,
+    unresolved: &[FailedAllowRoot],
+) -> std::fmt::Result {
+    let label = if unresolved.len() == 1 {
+        "extra allow-root could not be resolved"
+    } else {
+        "extra allow-roots could not be resolved"
+    };
+    write!(f, "{label}: ")?;
+    for (i, item) in unresolved.iter().enumerate() {
+        if i > 0 {
+            f.write_str("; ")?;
+        }
+        write!(f, "{} ({})", item.path, item.source)?;
+    }
+    Ok(())
+}
+
 impl std::error::Error for ContainmentError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             ContainmentError::Canonicalize { source, .. } => Some(source),
+            ContainmentError::UnresolvedAllowRoot { unresolved, .. } => unresolved
+                .first()
+                .map(|item| &item.source as &(dyn std::error::Error + 'static)),
             _ => None,
         }
     }
@@ -394,6 +449,13 @@ pub struct PathGuard {
     root: PathBuf,
     canon_root: PathBuf,
     absolute_policy: AbsolutePathPolicy,
+}
+
+/// Canonical roots for one absolute-path check, plus extra allow-roots
+/// that could not be resolved (#2735).
+struct AllowedRoots {
+    roots: Vec<PathBuf>,
+    unresolved: Vec<FailedAllowRoot>,
 }
 
 impl PathGuard {
@@ -423,8 +485,8 @@ impl PathGuard {
         let p = Path::new(path);
 
         if p.is_absolute() {
-            let roots = self.absolute_allowed_roots(path)?;
-            return self.check_resolved_absolute(path, p, &roots);
+            let allowed = self.absolute_allowed_roots(path)?;
+            return self.check_resolved_absolute(path, p, allowed);
         }
 
         // Relative paths are contained against the primary root only.
@@ -453,13 +515,20 @@ impl PathGuard {
         let p = Path::new(path);
 
         if p.is_absolute() {
-            let roots = self.absolute_allowed_roots(path)?;
-            return self.check_entry_under_roots(path, p, &roots);
+            let allowed = self.absolute_allowed_roots(path)?;
+            return self.check_entry_under_roots(path, p, allowed);
         }
 
         reject_absolute_components(path, p, &self.root)?;
         let joined = self.root.join(path);
-        self.check_entry_under_roots(path, &joined, std::slice::from_ref(&self.canon_root))
+        self.check_entry_under_roots(
+            path,
+            &joined,
+            AllowedRoots {
+                roots: vec![self.canon_root.clone()],
+                unresolved: Vec::new(),
+            },
+        )
     }
 
     /// The original (non-canonicalized) workspace root.
@@ -498,17 +567,30 @@ impl PathGuard {
     /// Allowed canonical roots for absolute-path checks under the current policy.
     ///
     /// Returns `Err(AbsolutePath)` when absolute paths are rejected.
-    fn absolute_allowed_roots(&self, path: &str) -> Result<Vec<PathBuf>, ContainmentError> {
+    ///
+    /// A scratch root may not exist yet. Keep the existing ancestor plus the
+    /// missing tail. An extra root with no resolvable ancestor is recorded
+    /// on [`AllowedRoots::unresolved`] and named when a later check escapes
+    /// (#2735). It does not reject paths that still sit under a resolved root.
+    fn absolute_allowed_roots(&self, path: &str) -> Result<AllowedRoots, ContainmentError> {
         match &self.absolute_policy {
             AbsolutePathPolicy::Reject => Err(ContainmentError::AbsolutePath(path.to_string())),
-            AbsolutePathPolicy::AllowIfContained => Ok(vec![self.canon_root.clone()]),
+            AbsolutePathPolicy::AllowIfContained => Ok(AllowedRoots {
+                roots: vec![self.canon_root.clone()],
+                unresolved: Vec::new(),
+            }),
             AbsolutePathPolicy::AllowAdditionalRoots(extra) => {
-                let mut allowed = vec![self.canon_root.clone()];
+                let mut allowed = AllowedRoots {
+                    roots: vec![self.canon_root.clone()],
+                    unresolved: Vec::new(),
+                };
                 for r in extra {
-                    // A scratch root may not exist yet. Keep the existing
-                    // ancestor plus the missing tail. No ancestor: omit.
-                    if let Ok(c) = canonicalize_or_ancestor(r) {
-                        allowed.push(c);
+                    match canonicalize_or_ancestor(r) {
+                        Ok(c) => allowed.roots.push(c),
+                        Err(source) => allowed.unresolved.push(FailedAllowRoot {
+                            path: r.display().to_string(),
+                            source,
+                        }),
                     }
                 }
                 Ok(allowed)
@@ -516,19 +598,38 @@ impl PathGuard {
         }
     }
 
-    /// Parent-follow + final-component no-follow under `allowed_roots`.
+    /// Escape against the primary workspace, naming any extra allow-root
+    /// that could not be resolved (#2735).
+    fn escape_error(&self, path: &str, allowed: AllowedRoots) -> ContainmentError {
+        // Prefer dunce-simplified display so agent JSON does not echo \\?\ (#1931).
+        let path = dunce::simplified(Path::new(path))
+            .to_string_lossy()
+            .into_owned();
+        let root = self.root.display().to_string();
+        if allowed.unresolved.is_empty() {
+            ContainmentError::Escaped { path, root }
+        } else {
+            ContainmentError::UnresolvedAllowRoot {
+                path,
+                root,
+                unresolved: allowed.unresolved,
+            }
+        }
+    }
+
+    /// Parent-follow + final-component no-follow under `allowed`.
     fn check_entry_under_roots(
         &self,
         display: &str,
         path: &Path,
-        allowed_roots: &[PathBuf],
+        allowed: AllowedRoots,
     ) -> Result<PathBuf, ContainmentError> {
         // Do not lexically collapse `..` before following an existing prefix
         // (`link/../x` must resolve `link` first; #2466).
         let openable = prefer_openable_path(path);
         let Some(file_name) = openable.file_name() else {
             // No final component (e.g. `/` or `..`): fall back to follow check.
-            return self.check_resolved_absolute(display, path, allowed_roots);
+            return self.check_resolved_absolute(display, path, allowed);
         };
         let parent = openable.parent().unwrap_or_else(|| Path::new("."));
         let parent_canon =
@@ -536,16 +637,12 @@ impl PathGuard {
                 path: display.to_string(),
                 source: e,
             })?;
-        let contained = allowed_roots
+        let contained = allowed
+            .roots
             .iter()
             .any(|r| path_is_under(parent_canon.as_path(), r));
         if !contained {
-            return Err(ContainmentError::Escaped {
-                path: dunce::simplified(Path::new(display))
-                    .to_string_lossy()
-                    .into_owned(),
-                root: self.root.display().to_string(),
-            });
+            return Err(self.escape_error(display, allowed));
         }
         let mut entry = prefer_local_drive_path(parent_canon);
         entry.push(file_name);
@@ -557,21 +654,15 @@ impl PathGuard {
         &self,
         path: &str,
         p: &Path,
-        allowed_roots: &[PathBuf],
+        allowed: AllowedRoots,
     ) -> Result<PathBuf, ContainmentError> {
         let canon = canonicalize_or_ancestor(p).map_err(|e| ContainmentError::Canonicalize {
             path: path.to_string(),
             source: e,
         })?;
-        let contained = allowed_roots.iter().any(|r| path_is_under(&canon, r));
+        let contained = allowed.roots.iter().any(|r| path_is_under(&canon, r));
         if !contained {
-            return Err(ContainmentError::Escaped {
-                // Prefer dunce-simplified display so agent JSON does not echo \\?\ (#1931).
-                path: dunce::simplified(Path::new(path))
-                    .to_string_lossy()
-                    .into_owned(),
-                root: self.root.display().to_string(),
-            });
+            return Err(self.escape_error(path, allowed));
         }
         Ok(prefer_local_drive_path(canon))
     }
@@ -784,6 +875,7 @@ const _: () = {
     let _ = _assert::<PathGuard>;
     let _ = _assert::<AbsolutePathPolicy>;
     let _ = _assert::<ContainmentError>;
+    let _ = _assert::<FailedAllowRoot>;
 };
 
 #[cfg(test)]

@@ -948,6 +948,192 @@ fn missing_extra_allow_root_accepts_paths_under_it() {
         matches!(err, ContainmentError::Escaped { .. }),
         "expected Escaped, got {err:?}"
     );
+    assert!(
+        !err.to_string().contains("could not be resolved"),
+        "a missing leaf whose ancestor exists stays a plain escape: {err}"
+    );
+}
+
+/// An extra allow-root with no resolvable ancestor is named when a check
+/// fails. Paths under the workspace, and under a root that did resolve,
+/// stay allowed (#2735).
+#[test]
+fn unresolved_extra_allow_root_is_named_on_escape() {
+    let parent = tempfile::TempDir::new().unwrap();
+    let workspace = parent.path().join("ws");
+    fs::create_dir(&workspace).unwrap();
+    fs::write(workspace.join("inside.txt"), "ok").unwrap();
+    let scratch = parent.path().join("scratch");
+    fs::create_dir(&scratch).unwrap();
+    let pid = std::process::id();
+    let bad = PathBuf::from(format!("patchloom-missing-allow-root-{pid}-nope/scratch"));
+    let bad_also = PathBuf::from(format!("patchloom-missing-allow-root-{pid}-also/scratch"));
+    assert!(
+        canonicalize_or_ancestor(&bad).is_err(),
+        "fixture must be a root canonicalize cannot resolve"
+    );
+    assert!(canonicalize_or_ancestor(&bad_also).is_err());
+
+    let guard = PathGuard::builder(workspace.clone())
+        .allow_root(&scratch)
+        .allow_root(&bad)
+        .allow_root(&bad_also)
+        .build()
+        .expect("unresolvable extra roots are reported on check, not on build");
+
+    guard
+        .check_path(workspace.join("inside.txt").to_str().unwrap())
+        .expect("in-workspace path stays allowed when another extra root failed");
+    guard
+        .check_path(scratch.join("note.txt").to_str().unwrap())
+        .expect("a resolved extra root stays allowed beside an unresolved one");
+
+    let outside = parent.path().join("outside.txt");
+    let err = guard
+        .check_path(outside.to_str().unwrap())
+        .expect_err("outside path is rejected");
+    let bad_disp = bad.display().to_string();
+    let bad_also_disp = bad_also.display().to_string();
+    match &err {
+        ContainmentError::UnresolvedAllowRoot {
+            unresolved, root, ..
+        } => {
+            assert_eq!(unresolved.len(), 2, "both failed roots are named");
+            assert_eq!(unresolved[0].path, bad_disp);
+            assert_eq!(unresolved[1].path, bad_also_disp);
+            assert_eq!(root, &workspace.display().to_string());
+        }
+        other => panic!("expected UnresolvedAllowRoot, got {other:?}"),
+    }
+    let msg = err.to_string();
+    assert!(
+        msg.contains("escapes workspace")
+            && msg.contains("extra allow-roots could not be resolved")
+            && msg.contains(&bad_disp)
+            && msg.contains(&bad_also_disp),
+        "escape must name each unresolved allow-root, got: {msg}"
+    );
+    assert!(
+        std::error::Error::source(&err).is_some(),
+        "unresolved allow-root error must expose the I/O source"
+    );
+
+    let entry_err = guard
+        .check_path_entry(outside.to_str().unwrap())
+        .expect_err("entry mode rejects the same outside path");
+    let entry_msg = entry_err.to_string();
+    assert!(
+        matches!(entry_err, ContainmentError::UnresolvedAllowRoot { .. })
+            && entry_msg.contains(&bad_disp)
+            && entry_msg.contains(&bad_also_disp),
+        "entry escape must name the unresolved allow-roots, got: {entry_msg}"
+    );
+}
+
+#[test]
+fn error_display_unresolved_allow_root_names_the_root() {
+    let err = ContainmentError::UnresolvedAllowRoot {
+        path: "/outside/file".to_string(),
+        root: "/ws".to_string(),
+        unresolved: vec![FailedAllowRoot {
+            path: "nope/scratch".to_string(),
+            source: std::io::Error::new(std::io::ErrorKind::NotFound, "missing ancestor"),
+        }],
+    };
+    let msg = err.to_string();
+    assert!(
+        msg.contains("escapes workspace")
+            && msg.contains("/outside/file")
+            && msg.contains("/ws")
+            && msg.contains("extra allow-root could not be resolved")
+            && msg.contains("nope/scratch")
+            && msg.contains("missing ancestor"),
+        "unexpected message: {msg}"
+    );
+    assert!(
+        !msg.contains("extra allow-roots could not be resolved"),
+        "one root uses the singular label: {msg}"
+    );
+}
+
+/// A symlink loop whose parent exists is kept via that ancestor. It is not
+/// the unresolved-root failure path (#2735).
+#[cfg(unix)]
+#[test]
+fn symlink_loop_extra_root_with_existing_parent_stays_allowed() {
+    use std::os::unix::fs::symlink;
+    let parent = tempfile::TempDir::new().unwrap();
+    let workspace = parent.path().join("ws");
+    fs::create_dir(&workspace).unwrap();
+    let loop_path = parent.path().join("loop");
+    symlink("loop", &loop_path).unwrap();
+    assert!(
+        canonicalize_or_ancestor(&loop_path).is_ok(),
+        "a loop whose parent exists is kept via that ancestor"
+    );
+    let guard = PathGuard::builder(workspace)
+        .allow_root(&loop_path)
+        .build()
+        .unwrap();
+    let under = loop_path.join("file.txt");
+    guard
+        .check_path(under.to_str().unwrap())
+        .expect("lexical child of a loop root stays allowed");
+    let outside = parent.path().join("outside.txt");
+    let err = guard
+        .check_path(outside.to_str().unwrap())
+        .expect_err("outside path is still rejected");
+    assert!(
+        matches!(err, ContainmentError::Escaped { .. }),
+        "a resolved loop root must not look unresolved: {err}"
+    );
+}
+
+/// Permission denied while resolving an extra root is named, not omitted.
+#[cfg(unix)]
+#[test]
+fn permission_denied_extra_allow_root_is_named() {
+    use std::os::unix::fs::PermissionsExt;
+    let parent = tempfile::TempDir::new().unwrap();
+    let workspace = parent.path().join("ws");
+    fs::create_dir(&workspace).unwrap();
+    fs::write(workspace.join("inside.txt"), "ok").unwrap();
+    let blocked = parent.path().join("blocked");
+    fs::create_dir(&blocked).unwrap();
+    fs::set_permissions(&blocked, fs::Permissions::from_mode(0o000)).unwrap();
+    struct Restore<'a>(&'a Path);
+    impl Drop for Restore<'_> {
+        fn drop(&mut self) {
+            let _ = fs::set_permissions(self.0, fs::Permissions::from_mode(0o755));
+        }
+    }
+    let _restore = Restore(&blocked);
+    // Root (common in Docker) can still read mode-000 directories.
+    if fs::read_dir(&blocked).is_ok() {
+        return;
+    }
+    let extra = blocked.join("scratch");
+    if canonicalize_or_ancestor(&extra).is_ok() {
+        return;
+    }
+    let guard = PathGuard::builder(workspace.clone())
+        .allow_root(&extra)
+        .build()
+        .unwrap();
+    guard
+        .check_path(workspace.join("inside.txt").to_str().unwrap())
+        .expect("in-workspace path stays allowed when the extra root is unreadable");
+    let outside = parent.path().join("outside.txt");
+    let err = guard
+        .check_path(outside.to_str().unwrap())
+        .expect_err("outside path is rejected");
+    let msg = err.to_string();
+    assert!(
+        matches!(err, ContainmentError::UnresolvedAllowRoot { .. })
+            && msg.contains(&extra.display().to_string())
+            && msg.contains("could not be resolved"),
+        "permission failure must name the extra allow-root, got: {msg}"
+    );
 }
 
 /// `../<dirname>/<file>` climbs out and resolves back inside the workspace.
