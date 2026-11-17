@@ -321,6 +321,97 @@ fn fix_defaults_unmix_mixed_eol() {
     assert_eq!(check_code, exit::SUCCESS, "tidy check after default fix");
 }
 
+/// Mixed CRLF/LF that already ends with a newline must not gain a blank line.
+#[test]
+fn fix_unmix_keeps_line_count_when_final_newline_style_differs() {
+    let tmp = TempDir::new().unwrap();
+    let file = tmp.path().join("mixed.txt");
+    std::fs::write(&file, b"a\r\nb\n").unwrap();
+
+    let mut global = GlobalFlags::test_with_cwd(tmp.path());
+    global.apply = true;
+
+    let args = TidyArgs {
+        action: TidyAction::Fix {
+            paths: vec!["mixed.txt".to_string()],
+            dedent: None,
+            indent: None,
+            lines: None,
+        },
+        write: Default::default(),
+    };
+    let code = run(args, &global).unwrap();
+    assert_eq!(code, exit::SUCCESS);
+
+    let raw = std::fs::read(&file).unwrap();
+    assert_eq!(
+        raw, b"a\r\nb\r\n",
+        "unmix must not insert a blank line: {raw:?}"
+    );
+}
+
+/// LF-majority file ending in CR must gain a final newline and unmix to LF.
+#[test]
+fn fix_unmix_completes_trailing_cr_on_lf_file() {
+    let tmp = TempDir::new().unwrap();
+    let file = tmp.path().join("mixed.txt");
+    std::fs::write(&file, b"a\nb\nc\r").unwrap();
+
+    let mut global = GlobalFlags::test_with_cwd(tmp.path());
+    global.apply = true;
+
+    let args = TidyArgs {
+        action: TidyAction::Fix {
+            paths: vec!["mixed.txt".to_string()],
+            dedent: None,
+            indent: None,
+            lines: None,
+        },
+        write: Default::default(),
+    };
+    let code = run(args, &global).unwrap();
+    assert_eq!(code, exit::SUCCESS);
+    assert_eq!(std::fs::read(&file).unwrap(), b"a\nb\nc\n");
+
+    global.apply = false;
+    let check = TidyArgs {
+        action: TidyAction::Check {
+            paths: vec!["mixed.txt".to_string()],
+        },
+        write: Default::default(),
+    };
+    let check_code = run(check, &global).unwrap();
+    assert_eq!(
+        check_code,
+        exit::SUCCESS,
+        "tidy check after completing trailing CR"
+    );
+}
+
+/// CR-majority text that already ends in LF must not gain a blank line.
+#[test]
+fn fix_does_not_append_cr_after_trailing_lf() {
+    let tmp = TempDir::new().unwrap();
+    let file = tmp.path().join("cr.txt");
+    let original = b"a\rb\rc\n";
+    std::fs::write(&file, original).unwrap();
+
+    let mut global = GlobalFlags::test_with_cwd(tmp.path());
+    global.apply = true;
+    let args = TidyArgs {
+        action: TidyAction::Fix {
+            paths: vec!["cr.txt".to_string()],
+            dedent: None,
+            indent: None,
+            lines: None,
+        },
+        write: Default::default(),
+    };
+    let code = run(args, &global).unwrap();
+    assert_eq!(code, exit::SUCCESS);
+    assert_eq!(std::fs::read(&file).unwrap(), original);
+}
+
 /// Uniform CRLF stays CRLF under default tidy fix (keep, not convert).
 #[test]
 fn fix_defaults_keep_uniform_crlf() {

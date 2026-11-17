@@ -255,9 +255,13 @@ pub fn parse_indent_spec(spec: &str) -> anyhow::Result<IndentSpec> {
 /// line terminator for `eol`, append one.  Empty content is returned unchanged.
 ///
 /// The terminator depends on `eol`:
-/// - `Lf` / `Keep` => `\n`
-/// - `Crlf`        => `\r\n`
-/// - `Cr`          => `\r`
+/// - `Lf`   => `\n`
+/// - `Crlf` => `\r\n`
+/// - `Cr`   => `\r`
+/// - `Keep` => the file's dominant ending. A trailing `\n` already
+///   counts (including LF on a CRLF file). A trailing `\r` counts
+///   only when the dominant ending is CR. A bare CR on a CRLF file
+///   is finished with one `\n`, not a second `\r\n`.
 ///
 /// Returns `Cow::Borrowed` when no change is needed, avoiding allocation.
 pub fn ensure_final_newline(content: &str, eol: EolMode) -> std::borrow::Cow<'_, str> {
@@ -267,10 +271,17 @@ pub fn ensure_final_newline(content: &str, eol: EolMode) -> std::borrow::Cow<'_,
         EolMode::Crlf => ("\r\n", content.ends_with("\r\n")),
         EolMode::Lf => ("\n", content.ends_with('\n')),
         EolMode::Keep => {
-            // Use the file's dominant line ending so we don't introduce
-            // mixed endings (#1175).
+            // Same finished-newline rule as tidy check: any trailing LF,
+            // or a trailing CR only when CR is the dominant ending.
             let detected = detect_eol(content);
-            (detected, content.ends_with(detected))
+            let already = content.ends_with('\n') || (detected == "\r" && content.ends_with('\r'));
+            // A full `\r\n` after a bare CR is a blank line (`\r\r\n`).
+            let suffix = if !already && detected == "\r\n" && content.ends_with('\r') {
+                "\n"
+            } else {
+                detected
+            };
+            (suffix, already)
         }
     };
     if content.is_empty() || already_ok {
