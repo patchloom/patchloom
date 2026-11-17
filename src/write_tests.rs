@@ -798,6 +798,44 @@ mod edge_cases {
     }
 
     #[test]
+    fn ensure_final_newline_keep_does_not_append_after_other_terminator() {
+        // Majority CRLF, but the file already ends in LF. Appending
+        // CRLF would make a blank line.
+        let input = "a\r\nb\n";
+        let result = ensure_final_newline(input, EolMode::Keep);
+        assert_eq!(result, input);
+    }
+
+    #[test]
+    fn ensure_final_newline_keep_completes_bare_cr_on_lf_file() {
+        // LF-majority file ending in CR is still missing a final LF.
+        // tidy check reports that, and tidy fix must be able to clear it.
+        let input = "a\nb\nc\r";
+        let result = ensure_final_newline(input, EolMode::Keep);
+        assert_eq!(result, "a\nb\nc\r\n");
+    }
+
+    #[test]
+    fn ensure_final_newline_keep_completes_bare_cr_on_crlf_file() {
+        // One `\n` finishes the bare CR. Appending `\r\n` would be `\r\r\n`.
+        let input = "a\r\nb\r\nc\r";
+        let result = ensure_final_newline(input, EolMode::Keep);
+        assert_eq!(result, "a\r\nb\r\nc\r\n");
+    }
+
+    #[test]
+    fn ensure_final_newline_keep_cr_majority_trailing_lf_unchanged() {
+        let input = "a\rb\rc\n";
+        assert_eq!(ensure_final_newline(input, EolMode::Keep), input);
+    }
+
+    #[test]
+    fn ensure_final_newline_keep_cr_majority_trailing_crlf_unchanged() {
+        let input = "a\rb\rc\r\n";
+        assert_eq!(ensure_final_newline(input, EolMode::Keep), input);
+    }
+
+    #[test]
     fn collapse_blanks_trailing_blank_no_newline() {
         // Two consecutive blank lines where the last has no trailing newline.
         // The fast-scan must detect this to trigger collapsing.
