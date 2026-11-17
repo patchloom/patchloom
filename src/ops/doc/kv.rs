@@ -191,12 +191,33 @@ fn env_inline_comment_suffix(line: &str) -> String {
 
 fn parse_properties(content: &str) -> Map<String, Value> {
     let mut map = Map::new();
-    for line in content.lines() {
-        if let Some((key, val)) = parse_prop_assignment(line) {
+    let lines: Vec<&str> = content.lines().collect();
+    let mut i = 0;
+    while i < lines.len() {
+        // Java logical lines: an odd trailing `\` joins the next natural
+        // line and drops that backslash. Leading whitespace on the
+        // continued line is not part of the value.
+        let mut logical = lines[i].to_string();
+        while properties_line_continues(&logical) && i + 1 < lines.len() {
+            logical.pop();
+            i += 1;
+            logical.push_str(lines[i].trim_start());
+        }
+        if let Some((key, val)) = parse_prop_assignment(&logical) {
             map.insert(key, Value::String(val));
         }
+        i += 1;
     }
     map
+}
+
+fn properties_line_continues(line: &str) -> bool {
+    let bytes = line.as_bytes();
+    let mut n = 0usize;
+    while n < bytes.len() && bytes[bytes.len() - 1 - n] == b'\\' {
+        n += 1;
+    }
+    n % 2 == 1
 }
 
 fn parse_prop_assignment(line: &str) -> Option<(String, String)> {
@@ -1330,6 +1351,24 @@ mod tests {
         let err = serialize_kv(&json!({"a\nb": {"port": "9"}}), FileFormat::Ini).unwrap_err();
         assert!(crate::exit::is_invalid_input(&err), "{err}");
         assert!(err.to_string().contains("a\nb"), "{err}");
+    }
+
+    #[test]
+    fn properties_backslash_joins_the_next_line() {
+        let text = "msg=hello\\\nworld\nport=1\n";
+        let got = parse_kv(text, FileFormat::Properties).unwrap();
+        assert_eq!(got["msg"], json!("helloworld"));
+        assert_eq!(got["port"], json!("1"));
+        assert!(got.get("world").is_none(), "{got}");
+
+        let spaced = "msg=hello\\\n  world\n";
+        let got = parse_kv(spaced, FileFormat::Properties).unwrap();
+        assert_eq!(got["msg"], json!("helloworld"));
+
+        let escaped = "msg=hello\\\\\nworld\n";
+        let got = parse_kv(escaped, FileFormat::Properties).unwrap();
+        assert_eq!(got["msg"], json!("hello\\"));
+        assert!(got.get("world").is_none(), "{got}");
     }
 
     #[test]
