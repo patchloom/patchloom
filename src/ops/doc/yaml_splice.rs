@@ -558,12 +558,22 @@ pub(crate) fn quote_plain_yaml11_binary(yaml: &str) -> String {
     out
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FlowKind {
+    Map,
+    Seq,
+}
+
 /// Quote plain scalars that YAML 1.1 reads as another type.
 ///
 /// `true`, `false`, `null`, `yes`, `no`, `on`, and `off` stay plain.
 /// `doc set` of the string `on` must remain `value: on` so a block
-/// sequence indent snapshot stays surgical. Underscore integers and
-/// ISO dates are quoted (#2487).
+/// sequence indent snapshot stays surgical. Underscore integers,
+/// sexagesimals, and ISO dates are quoted only when the whole plain
+/// scalar is that type (#2487), including a map key. A typed word
+/// inside a longer plain scalar stays plain, so the written text still
+/// parses as the original string. `|` and `>` bodies are copied as
+/// written.
 pub(crate) fn quote_plain_yaml11_scalars(yaml: &str) -> String {
     let b = yaml.as_bytes();
     let mut out = String::with_capacity(yaml.len());
@@ -571,105 +581,289 @@ pub(crate) fn quote_plain_yaml11_scalars(yaml: &str) -> String {
     let mut in_single = false;
     let mut in_double = false;
     let mut escaped = false;
-    let mut in_comment = false;
+    let mut flow: Vec<FlowKind> = Vec::new();
+    let mut expect_key = true;
+    let mut line_indent = 0usize;
+    let mut counting_indent = true;
+    let mut at_line_content = true;
+    let mut block_parent: Option<usize> = None;
+    let mut arm_block: Option<usize> = None;
+
     while i < b.len() {
         let c = b[i];
-        if c >= 128 {
-            let ch = yaml[i..].chars().next().expect("utf-8 boundary");
-            out.push(ch);
-            i += ch.len_utf8();
-            continue;
-        }
-        if c == b'\n' {
-            in_comment = false;
-        }
+
         if in_double {
-            out.push(c as char);
-            if escaped {
-                escaped = false;
-            } else if c == b'\\' {
+            push_yaml_char(&mut out, yaml, &mut i);
+            if !escaped && c == b'\\' {
                 escaped = true;
-            } else if c == b'"' {
+            } else if !escaped && c == b'"' {
                 in_double = false;
+                escaped = false;
+            } else {
+                escaped = false;
             }
-            i += 1;
             continue;
         }
         if in_single {
-            out.push(c as char);
             if c == b'\'' && i + 1 < b.len() && b[i + 1] == b'\'' {
+                out.push('\'');
                 out.push('\'');
                 i += 2;
                 continue;
             }
+            push_yaml_char(&mut out, yaml, &mut i);
             if c == b'\'' {
                 in_single = false;
             }
+            continue;
+        }
+
+        if c == b'\n' {
+            out.push('\n');
+            i += 1;
+            counting_indent = true;
+            at_line_content = true;
+            line_indent = 0;
+            if flow.is_empty() {
+                expect_key = true;
+            }
+            if let Some(parent) = arm_block.take() {
+                block_parent = Some(parent);
+            }
+            continue;
+        }
+        if c == b'\r' {
+            out.push('\r');
             i += 1;
             continue;
         }
-        if in_comment {
+        if counting_indent && c == b' ' {
+            line_indent += 1;
+            out.push(' ');
+            i += 1;
+            continue;
+        }
+        if counting_indent {
+            counting_indent = false;
+            if let Some(parent) = block_parent {
+                if line_indent > parent {
+                    while i < b.len() && b[i] != b'\n' && b[i] != b'\r' {
+                        push_yaml_char(&mut out, yaml, &mut i);
+                    }
+                    continue;
+                }
+                block_parent = None;
+            }
+        }
+
+        if c == b'#' && (i == 0 || b[i - 1].is_ascii_whitespace()) {
+            while i < b.len() && b[i] != b'\n' && b[i] != b'\r' {
+                push_yaml_char(&mut out, yaml, &mut i);
+            }
+            at_line_content = false;
+            continue;
+        }
+        if c.is_ascii_whitespace() {
             out.push(c as char);
             i += 1;
             continue;
         }
         if c == b'"' {
             in_double = true;
+            escaped = false;
             out.push('"');
             i += 1;
+            expect_key = false;
+            at_line_content = false;
             continue;
         }
         if c == b'\'' {
             in_single = true;
             out.push('\'');
             i += 1;
+            expect_key = false;
+            at_line_content = false;
             continue;
         }
-        if c == b'#' {
-            in_comment = true;
-            out.push('#');
+        if c == b'{' {
+            flow.push(FlowKind::Map);
+            out.push('{');
             i += 1;
+            expect_key = true;
+            at_line_content = false;
             continue;
         }
-        let signed = matches!(c, b'+' | b'-') && i + 1 < b.len() && b[i + 1].is_ascii_digit();
-        if (c.is_ascii_alphanumeric() || signed)
-            && (i == 0 || is_yaml_token_boundary(b[i - 1]))
-            && let Some(len) = plain_typed_scalar_len(&yaml[i..])
+        if c == b'[' {
+            flow.push(FlowKind::Seq);
+            out.push('[');
+            i += 1;
+            expect_key = false;
+            at_line_content = false;
+            continue;
+        }
+        if c == b'}' || c == b']' {
+            flow.pop();
+            out.push(c as char);
+            i += 1;
+            expect_key = false;
+            at_line_content = false;
+            continue;
+        }
+        if c == b',' {
+            out.push(',');
+            i += 1;
+            expect_key = matches!(flow.last(), Some(FlowKind::Map));
+            at_line_content = false;
+            continue;
+        }
+        if c == b':' {
+            out.push(':');
+            i += 1;
+            expect_key = false;
+            at_line_content = false;
+            continue;
+        }
+        if expect_key && c == b'-' && (i + 1 >= b.len() || b[i + 1].is_ascii_whitespace()) {
+            out.push('-');
+            i += 1;
+            expect_key = false;
+            at_line_content = false;
+            continue;
+        }
+        if matches!(c, b'|' | b'>')
+            && (at_line_content || !expect_key)
+            && is_block_header_rest(yaml, i + 1)
         {
-            let end = i + len;
-            let token = &yaml[i..end];
-            let stopped = end >= b.len() || is_yaml11_scalar_stop(b[end]);
-            if stopped && plain_typed_scalar_needs_quote(token) {
+            arm_block = Some(line_indent);
+            while i < b.len() && b[i] != b'\n' && b[i] != b'\r' {
+                push_yaml_char(&mut out, yaml, &mut i);
+            }
+            at_line_content = false;
+            continue;
+        }
+
+        if let Some(end) = scan_plain_scalar(yaml, i, !flow.is_empty(), expect_key) {
+            let scalar = &yaml[i..end];
+            if plain_typed_scalar_needs_quote(scalar) {
                 // Double quotes match serde_yaml_ng's quoted strings.
                 out.push('"');
-                out.push_str(token);
+                out.push_str(scalar);
                 out.push('"');
-                i = end;
-                continue;
+            } else {
+                out.push_str(scalar);
             }
+            i = end;
+            expect_key = false;
+            at_line_content = false;
+            continue;
         }
-        out.push(c as char);
-        i += 1;
+
+        push_yaml_char(&mut out, yaml, &mut i);
+        expect_key = false;
+        at_line_content = false;
     }
     out
 }
 
-fn is_yaml11_scalar_stop(c: u8) -> bool {
-    c.is_ascii_whitespace() || matches!(c, b',' | b']' | b'}' | b'#')
+fn push_yaml_char(out: &mut String, yaml: &str, i: &mut usize) {
+    let b = yaml.as_bytes();
+    if b[*i] >= 128 {
+        let ch = yaml[*i..].chars().next().expect("utf-8 boundary");
+        out.push(ch);
+        *i += ch.len_utf8();
+    } else {
+        out.push(b[*i] as char);
+        *i += 1;
+    }
 }
 
-fn plain_typed_scalar_len(s: &str) -> Option<usize> {
-    let b = s.as_bytes();
-    let mut i = 0;
+/// `|` / `>` header tail: chomp, explicit indent, and an optional comment.
+fn is_block_header_rest(yaml: &str, mut i: usize) -> bool {
+    let b = yaml.as_bytes();
+    while i < b.len() && matches!(b[i], b'+' | b'-' | b'0'..=b'9') {
+        i += 1;
+    }
+    while i < b.len() && (b[i] == b' ' || b[i] == b'\t') {
+        i += 1;
+    }
+    i >= b.len() || b[i] == b'\n' || b[i] == b'\r' || b[i] == b'#'
+}
+
+/// End offset of one plain scalar, not including a following key colon.
+fn scan_plain_scalar(yaml: &str, start: usize, in_flow: bool, expect_key: bool) -> Option<usize> {
+    let b = yaml.as_bytes();
+    if start >= b.len() {
+        return None;
+    }
+    let c0 = b[start];
+    if c0.is_ascii_whitespace()
+        || matches!(
+            c0,
+            b':' | b'#'
+                | b','
+                | b'['
+                | b']'
+                | b'{'
+                | b'}'
+                | b'"'
+                | b'\''
+                | b'|'
+                | b'>'
+                | b'&'
+                | b'*'
+                | b'!'
+                | b'%'
+                | b'@'
+                | b'`'
+        )
+    {
+        return None;
+    }
+    let mut i = start;
+    let mut end = start;
     while i < b.len() {
         let c = b[i];
-        if c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-' | b':' | b'.' | b'+') {
-            i += 1;
-        } else {
+        if c == b'\n' || c == b'\r' {
             break;
         }
+        if c == b'#' && i > start && b[i - 1].is_ascii_whitespace() {
+            break;
+        }
+        if in_flow && matches!(c, b',' | b']' | b'}' | b'[' | b'{') {
+            break;
+        }
+        if !in_flow && matches!(c, b'[' | b'{') {
+            break;
+        }
+        if c == b':' {
+            let next = b.get(i + 1).copied();
+            let ws_sep = match next {
+                None => true,
+                Some(n) if n.is_ascii_whitespace() => true,
+                Some(n) if in_flow && matches!(n, b',' | b']' | b'}') => true,
+                _ => false,
+            };
+            let flow_key_sep =
+                expect_key && in_flow && !matches!(next, Some(n) if n.is_ascii_digit());
+            if ws_sep || flow_key_sep {
+                break;
+            }
+        }
+        if c >= 128 {
+            let ch = yaml[i..].chars().next().expect("utf-8 boundary");
+            i += ch.len_utf8();
+            end = i;
+            continue;
+        }
+        if !c.is_ascii_whitespace() {
+            end = i + 1;
+        }
+        i += 1;
     }
-    if i == 0 { None } else { Some(i) }
+    while end > start && b[end - 1].is_ascii_whitespace() {
+        end -= 1;
+    }
+    if end == start { None } else { Some(end) }
 }
 
 fn plain_typed_scalar_needs_quote(token: &str) -> bool {
@@ -949,6 +1143,85 @@ mod tests {
         );
         assert_eq!(super::quote_plain_yaml11_scalars("# yes\n"), "# yes\n");
         assert_eq!(super::quote_plain_yaml11_scalars("yes: 1\n"), "yes: 1\n");
+    }
+
+    #[test]
+    fn quote_plain_yaml11_scalars_leaves_typed_words_inside_plain_scalars() {
+        assert_eq!(
+            super::quote_plain_yaml11_scalars("note: meet on 2020-01-01\n"),
+            "note: meet on 2020-01-01\n"
+        );
+        assert_eq!(
+            super::quote_plain_yaml11_scalars("wait: waited 1:30 minutes\n"),
+            "wait: waited 1:30 minutes\n"
+        );
+        assert_eq!(
+            super::quote_plain_yaml11_scalars("n: build 1_000\n"),
+            "n: build 1_000\n"
+        );
+        assert_eq!(
+            super::quote_plain_yaml11_scalars("raw: 1_000#draft\n"),
+            "raw: 1_000#draft\n"
+        );
+        assert_eq!(
+            super::quote_plain_yaml11_scalars("id: 2020-01-01 # when\n"),
+            "id: \"2020-01-01\" # when\n"
+        );
+        assert_eq!(
+            super::quote_plain_yaml11_scalars("id: http://example.com:8080/path\n"),
+            "id: http://example.com:8080/path\n"
+        );
+        assert_eq!(
+            super::quote_plain_yaml11_scalars("foo:bar: 1\n"),
+            "foo:bar: 1\n"
+        );
+    }
+
+    #[test]
+    fn quote_plain_yaml11_scalars_quotes_typed_map_keys() {
+        assert_eq!(
+            super::quote_plain_yaml11_scalars("2020-01-01: keep\n"),
+            "\"2020-01-01\": keep\n"
+        );
+        assert_eq!(
+            super::quote_plain_yaml11_scalars("1_000: n\n"),
+            "\"1_000\": n\n"
+        );
+        assert_eq!(
+            super::quote_plain_yaml11_scalars("1:30: t\n"),
+            "\"1:30\": t\n"
+        );
+        assert_eq!(
+            super::quote_plain_yaml11_scalars("{2020-01-01: keep, 1_000: n}\n"),
+            "{\"2020-01-01\": keep, \"1_000\": n}\n"
+        );
+        assert_eq!(
+            super::quote_plain_yaml11_scalars("{2020-01-01:keep}\n"),
+            "{\"2020-01-01\":keep}\n"
+        );
+        assert_eq!(
+            super::quote_plain_yaml11_scalars("- 2020-01-01\n"),
+            "- \"2020-01-01\"\n"
+        );
+        assert_eq!(
+            super::quote_plain_yaml11_scalars("[2020-01-01, 1_000]\n"),
+            "[\"2020-01-01\", \"1_000\"]\n"
+        );
+        assert_eq!(
+            super::quote_plain_yaml11_scalars("t: 1:30\n"),
+            "t: \"1:30\"\n"
+        );
+    }
+
+    #[test]
+    fn quote_plain_yaml11_scalars_skips_block_scalar_body() {
+        let yaml = "note: |\n  2020-01-01\n  1_000\nnext: 1\n";
+        assert_eq!(super::quote_plain_yaml11_scalars(yaml), yaml);
+        let folded = "note:\n  |\n    2020-01-01\nnext: 1_000\n";
+        assert_eq!(
+            super::quote_plain_yaml11_scalars(folded),
+            "note:\n  |\n    2020-01-01\nnext: \"1_000\"\n"
+        );
     }
 
     #[test]

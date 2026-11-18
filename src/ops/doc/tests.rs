@@ -3872,6 +3872,32 @@ mod regression {
     }
 
     #[test]
+    fn yaml_serialize_quotes_whole_typed_scalars_only() {
+        let value = json!({
+            "note": "meet on 2020-01-01",
+            "wait": "waited 1:30 minutes",
+            "n": "build 1_000",
+            "raw": "1_000#draft",
+            "when": "2020-01-01",
+            "span": "1:30",
+            "2020-01-02": "keep",
+            "1_000": "n",
+        });
+        let serialized = serialize_value(&value, &FileFormat::Yaml).unwrap();
+        let reparsed = parse_doc(&serialized, &FileFormat::Yaml).unwrap();
+        assert_eq!(value, reparsed, "{serialized}");
+        assert!(serialized.contains("meet on 2020-01-01"), "{serialized}");
+        assert!(!serialized.contains("meet on \""), "{serialized}");
+        assert!(!serialized.contains("waited \""), "{serialized}");
+        assert!(!serialized.contains("build \""), "{serialized}");
+        assert!(!serialized.contains("\"1_000\"#"), "{serialized}");
+        assert!(serialized.contains("\"2020-01-01\""), "{serialized}");
+        assert!(serialized.contains("\"2020-01-02\""), "{serialized}");
+        assert!(serialized.contains("\"1_000\""), "{serialized}");
+        assert!(serialized.contains("\"1:30\""), "{serialized}");
+    }
+
+    #[test]
     fn yaml_deep_nested_object_creation() {
         // Deep (2+) new intermediates: in-memory always correct.
         // Preserving serialize may use fallback for some >1-level cases
