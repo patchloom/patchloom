@@ -11,6 +11,21 @@ present (applied to the GitHub Release body by the host job). Versioned
 sections below are managed by release-please.
 
 
+## [0.37.8](https://github.com/patchloom/patchloom/compare/patchloom-v0.37.7...patchloom-v0.37.8) (2026-11-18)
+
+
+### Bug Fixes
+
+* accept in-workspace paths the contain guard rejected ([#2734](https://github.com/patchloom/patchloom/issues/2734)) ([5c80333](https://github.com/patchloom/patchloom/commit/5c80333bb9aa693e44a9b2bb22dc53d92b8e1580))
+* bump rmcp and quinn past RustSec advisories ([#2730](https://github.com/patchloom/patchloom/issues/2730)) ([81ff67e](https://github.com/patchloom/patchloom/commit/81ff67e350510451024cd8ef75787228d22f30ae))
+* do not quote YAML dates the edit did not change ([#2737](https://github.com/patchloom/patchloom/issues/2737)) ([dc7ab7d](https://github.com/patchloom/patchloom/commit/dc7ab7d0bda9058b573b1d98a999eb7645ff8d3e))
+* join continued Java properties lines ([#2738](https://github.com/patchloom/patchloom/issues/2738)) ([c5842c0](https://github.com/patchloom/patchloom/commit/c5842c01b4d967e79125291c817614eb75ebc8a2))
+* keep tidy unmix from adding a blank line ([#2743](https://github.com/patchloom/patchloom/issues/2743)) ([0f8a4ec](https://github.com/patchloom/patchloom/commit/0f8a4ec989e611c4e8a265a00673435fb5d53bbd)), closes [#2742](https://github.com/patchloom/patchloom/issues/2742)
+* name an unresolved extra allow-root ([#2739](https://github.com/patchloom/patchloom/issues/2739)) ([7cb3da5](https://github.com/patchloom/patchloom/commit/7cb3da52b528a2ee6d594ec89a0c54a4dc78969c))
+* quote a YAML 0b scalar only when it is the whole token ([#2746](https://github.com/patchloom/patchloom/issues/2746)) ([09cfefc](https://github.com/patchloom/patchloom/commit/09cfefcabbcd35a84be392bfb480bcdeaf9e90a8))
+* quote whole YAML scalars, not words inside them ([#2745](https://github.com/patchloom/patchloom/issues/2745)) ([4522fec](https://github.com/patchloom/patchloom/commit/4522fecb8564b85d08723932e80c405d54e297d6))
+* reject escaped plan cwd and keep hyphenated YAML scalars ([#2736](https://github.com/patchloom/patchloom/issues/2736)) ([24f2bf9](https://github.com/patchloom/patchloom/commit/24f2bf98503627062c04329317c7852297043f93))
+
 ## [0.37.7](https://github.com/patchloom/patchloom/compare/patchloom-v0.37.6...patchloom-v0.37.7) (2026-11-05)
 
 
