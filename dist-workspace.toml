@@ -35,3 +35,9 @@ github-release = "host"
 install-path = "CARGO_HOME"
 # Whether to install an updater program
 install-updater = false
+
+# GitHub retired the macos-14 image on 2026-11-02. cargo-dist 0.31 still
+# asks for that label for arm64 macOS, and the job is cancelled with no
+# steps. macos-15 is the current arm64 image.
+[dist.github-custom-runners]
+aarch64-apple-darwin = "macos-15"
