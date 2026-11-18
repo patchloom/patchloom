@@ -196,12 +196,19 @@ fn parse_properties(content: &str) -> Map<String, Value> {
     while i < lines.len() {
         // Java logical lines: an odd trailing `\` joins the next natural
         // line and drops that backslash. Leading whitespace on the
-        // continued line is not part of the value.
+        // continued line is not part of the value. A `#` or `!` line is
+        // skipped whole, so that backslash does not continue it. With no
+        // next line, the continuation backslash is dropped.
         let mut logical = lines[i].to_string();
-        while properties_line_continues(&logical) && i + 1 < lines.len() {
-            logical.pop();
-            i += 1;
-            logical.push_str(lines[i].trim_start());
+        if !properties_comment_line(&logical) {
+            while properties_line_continues(&logical) && i + 1 < lines.len() {
+                logical.pop();
+                i += 1;
+                logical.push_str(lines[i].trim_start());
+            }
+            if properties_line_continues(&logical) {
+                logical.pop();
+            }
         }
         if let Some((key, val)) = parse_prop_assignment(&logical) {
             map.insert(key, Value::String(val));
@@ -209,6 +216,11 @@ fn parse_properties(content: &str) -> Map<String, Value> {
         i += 1;
     }
     map
+}
+
+fn properties_comment_line(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    trimmed.starts_with('#') || trimmed.starts_with('!')
 }
 
 fn properties_line_continues(line: &str) -> bool {
@@ -1369,6 +1381,49 @@ mod tests {
         let got = parse_kv(escaped, FileFormat::Properties).unwrap();
         assert_eq!(got["msg"], json!("hello\\"));
         assert!(got.get("world").is_none(), "{got}");
+    }
+
+    #[test]
+    fn properties_comment_backslash_keeps_the_next_property() {
+        // #2748: a comment cannot be continued. The next assignment stays.
+        for src in [
+            "# note\\\nport=1\n",
+            "! note\\\nport=1\n",
+            "   # note\\\nport=1\n",
+            "# note\\\n# still\nport=1\n",
+        ] {
+            let got = parse_kv(src, FileFormat::Properties).unwrap();
+            assert_eq!(got["port"], json!("1"), "{src:?} -> {got}");
+            assert_eq!(got.as_object().unwrap().len(), 1, "{src:?} -> {got}");
+        }
+
+        // A blank continued line ends the logical line. The next assignment stays.
+        let blank = "msg=hello\\\n\nport=1\n";
+        let got = parse_kv(blank, FileFormat::Properties).unwrap();
+        assert_eq!(got["msg"], json!("hello"), "{got}");
+        assert_eq!(got["port"], json!("1"), "{got}");
+
+        // A continuation line keeps a leading `#`. It is not a new comment.
+        let hashed = "msg=hello\\\n#world\n";
+        let got = parse_kv(hashed, FileFormat::Properties).unwrap();
+        assert_eq!(got["msg"], json!("hello#world"), "{got}");
+
+        // An escaped `#` is a key, so an odd trailing `\` still joins.
+        let escaped_hash = "\\#tag\\\nmore=1\n";
+        let got = parse_kv(escaped_hash, FileFormat::Properties).unwrap();
+        assert_eq!(got["#tagmore"], json!("1"), "{got}");
+        assert!(got.get("more").is_none(), "{got}");
+
+        // No next line: drop the odd continuation backslash.
+        for src in ["msg=hello\\\n", "msg=hello\\"] {
+            let got = parse_kv(src, FileFormat::Properties).unwrap();
+            assert_eq!(got["msg"], json!("hello"), "{src:?} -> {got}");
+        }
+        // An even trailing backslash is a literal backslash, including at EOF.
+        let got = parse_kv("msg=hello\\\\\n", FileFormat::Properties).unwrap();
+        assert_eq!(got["msg"], json!("hello\\"), "{got}");
+        let got = parse_kv("msg=hello\\\\\\", FileFormat::Properties).unwrap();
+        assert_eq!(got["msg"], json!("hello\\"), "{got}");
     }
 
     #[test]
