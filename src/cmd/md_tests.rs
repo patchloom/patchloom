@@ -163,7 +163,7 @@ mod basic {
 
     #[test]
     fn dedupe_preview_says_would_remove() {
-        let line = super::super::dedupe_human_line("Section");
+        let line = super::super::dedupe_human_line("Section", false);
         assert!(
             line.contains("would remove duplicate"),
             "preview must be future tense: {line}"
@@ -171,6 +171,15 @@ mod basic {
         assert!(
             !line.contains("removed duplicate"),
             "preview must not say the file already changed: {line}"
+        );
+        let applied = super::super::dedupe_human_line("Section", true);
+        assert!(
+            applied.contains("removed duplicate"),
+            "apply must be past tense: {applied}"
+        );
+        assert!(
+            !applied.contains("would remove"),
+            "apply must not say the edit is still pending: {applied}"
         );
 
         let dir = TempDir::new().unwrap();

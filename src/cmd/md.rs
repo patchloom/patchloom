@@ -468,17 +468,11 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 removed.extend(extra);
             }
 
-            // Human: one line per removed heading. JSONL streams headings then
-            // a type:summary trailer with applied/backup (tidy/replace parity).
-            // --json uses a single object with applied (see finalize below).
-            if !removed.is_empty() {
-                if global.jsonl {
-                    global.emit_json_items(&removed)?;
-                } else if !global.json && !global.quiet {
-                    for h in &removed {
-                        eprintln!("{}", dedupe_human_line(h));
-                    }
-                }
+            // JSONL streams one heading per line before the summary trailer.
+            // Human lines are printed in the finalize callback so --apply says
+            // the duplicate was removed, and preview still says it would be.
+            if global.jsonl && !removed.is_empty() {
+                global.emit_json_items(&removed)?;
             }
 
             let ops: Vec<Operation> = files
@@ -539,6 +533,7 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                         } else if g.jsonl {
                             emit_dedupe_jsonl_summary(g, Some(false), None, None)?;
                         }
+                        emit_dedupe_human(g, &removed_for_json, false);
                         let _ = has;
                         Ok(())
                     },
@@ -547,6 +542,9 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                                _diffs: &[crate::diff::FileDiff],
                                plain: Option<String>,
                                backup: Option<String>| {
+                        if has {
+                            emit_dedupe_human(g, &removed_for_json, true);
+                        }
                         if g.json {
                             g.emit_json(&DedupeOut {
                                 ok: true,
@@ -576,20 +574,25 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                             })?;
                         } else if g.jsonl {
                             emit_dedupe_jsonl_summary(g, Some(false), None, plain)?;
-                        } else if !diffs.is_empty() && !g.quiet {
-                            let dr = crate::diff::DiffResult {
-                                diffs: diffs.to_vec(),
-                            };
-                            print!(
-                                "{}",
-                                crate::diff::format_diff_result_colored(&dr, g.should_color())
-                            );
+                        } else if !g.quiet {
+                            emit_dedupe_human(g, &removed_for_json, false);
+                            if !diffs.is_empty() {
+                                let dr = crate::diff::DiffResult {
+                                    diffs: diffs.to_vec(),
+                                };
+                                print!(
+                                    "{}",
+                                    crate::diff::format_diff_result_colored(&dr, g.should_color())
+                                );
+                            }
                         }
                         let _ = has;
                         Ok(())
                     },
                     after_preview_emit: |_: &GlobalFlags| {},
-                    after_preview_apply: |_: &GlobalFlags| {},
+                    after_preview_apply: |g: &GlobalFlags| {
+                        emit_dedupe_human(g, &removed_for_json, true);
+                    },
                 },
             )
         }
@@ -755,8 +758,21 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 }
 
-fn dedupe_human_line(heading: &str) -> String {
-    format!("md: would remove duplicate: {heading}")
+fn dedupe_human_line(heading: &str, applied: bool) -> String {
+    if applied {
+        format!("md: removed duplicate: {heading}")
+    } else {
+        format!("md: would remove duplicate: {heading}")
+    }
+}
+
+fn emit_dedupe_human(global: &GlobalFlags, headings: &[String], applied: bool) {
+    if global.json || global.jsonl || global.quiet || headings.is_empty() {
+        return;
+    }
+    for heading in headings {
+        eprintln!("{}", dedupe_human_line(heading, applied));
+    }
 }
 
 #[path = "md_tests.rs"]

@@ -454,7 +454,9 @@ fn test_md_dedupe_headings_removes_duplicate() {
         .arg(&file)
         .arg("--apply")
         .assert()
-        .code(0);
+        .code(0)
+        .stderr(predicate::str::contains("md: removed duplicate: ## Dup"))
+        .stderr(predicate::str::contains("would remove").not());
 
     let content = fs::read_to_string(&file).unwrap();
     let count = content.matches("## Dup").count();
@@ -482,7 +484,10 @@ fn test_md_dedupe_headings_default_mode_exits_2() {
         .arg("dedupe-headings")
         .arg(&file)
         .assert()
-        .code(2);
+        .code(2)
+        .stderr(predicate::str::contains(
+            "md: would remove duplicate: ## Dup",
+        ));
 
     // File should not be modified in preview mode
     let content = fs::read_to_string(&file).unwrap();
