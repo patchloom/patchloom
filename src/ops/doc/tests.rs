@@ -3898,6 +3898,21 @@ mod regression {
     }
 
     #[test]
+    fn yaml_serialize_quotes_whole_binary_scalars_only() {
+        let value = json!({
+            "note": "build 0b10 now",
+            "flag": "0b10",
+            "0b10": "keep",
+        });
+        let serialized = serialize_value(&value, &FileFormat::Yaml).unwrap();
+        let reparsed = parse_doc(&serialized, &FileFormat::Yaml).unwrap();
+        assert_eq!(value, reparsed, "{serialized}");
+        assert!(serialized.contains("build 0b10 now"), "{serialized}");
+        assert!(!serialized.contains("build '0b10'"), "{serialized}");
+        assert!(serialized.contains("'0b10'"), "{serialized}");
+    }
+
+    #[test]
     fn yaml_deep_nested_object_creation() {
         // Deep (2+) new intermediates: in-memory always correct.
         // Preserving serialize may use fallback for some >1-level cases

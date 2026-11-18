@@ -485,77 +485,13 @@ fn is_yaml11_base_int(s: &str) -> bool {
     digits > 0
 }
 
-/// `serde_yaml_ng` emits a Rust string `0b0` as a plain scalar. Our reader
-/// treats that as YAML 1.1 binary integer 0. Quote those tokens.
+/// Quote a whole plain scalar that YAML 1.1 reads as a binary integer.
+///
+/// `serde_yaml_ng` emits the Rust string `0b0` as a plain scalar, and
+/// our reader treats that as integer 0. A `0b` word inside a longer
+/// plain scalar stays plain, so the parsed string does not gain quotes.
 pub(crate) fn quote_plain_yaml11_binary(yaml: &str) -> String {
-    let b = yaml.as_bytes();
-    let mut out = String::with_capacity(yaml.len());
-    let mut i = 0;
-    let mut in_single = false;
-    let mut in_double = false;
-    let mut escaped = false;
-    while i < b.len() {
-        let c = b[i];
-        if c >= 128 {
-            let ch = yaml[i..].chars().next().expect("utf-8 boundary");
-            out.push(ch);
-            i += ch.len_utf8();
-            continue;
-        }
-        if in_double {
-            out.push(c as char);
-            if escaped {
-                escaped = false;
-            } else if c == b'\\' {
-                escaped = true;
-            } else if c == b'"' {
-                in_double = false;
-            }
-            i += 1;
-            continue;
-        }
-        if in_single {
-            out.push(c as char);
-            if c == b'\'' && i + 1 < b.len() && b[i + 1] == b'\'' {
-                out.push('\'');
-                i += 2;
-                continue;
-            }
-            if c == b'\'' {
-                in_single = false;
-            }
-            i += 1;
-            continue;
-        }
-        if c == b'"' {
-            in_double = true;
-            out.push('"');
-            i += 1;
-            continue;
-        }
-        if c == b'\'' {
-            in_single = true;
-            out.push('\'');
-            i += 1;
-            continue;
-        }
-        if matches!(c, b'0' | b'+' | b'-')
-            && (i == 0 || is_yaml_token_boundary(b[i - 1]))
-            && let Some(len) = plain_binary_len(&yaml[i..])
-        {
-            let end = i + len;
-            if end >= b.len() || is_yaml_token_boundary(b[end]) || b[end] == b':' {
-                out.push('\'');
-                out.push_str(&yaml[i..end]);
-                out.push('\'');
-                i = end;
-                continue;
-            }
-        }
-        out.push(c as char);
-        i += 1;
-    }
-    out
+    quote_whole_plain_scalars(yaml, '\'', is_whole_yaml11_binary)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -575,6 +511,10 @@ enum FlowKind {
 /// parses as the original string. `|` and `>` bodies are copied as
 /// written.
 pub(crate) fn quote_plain_yaml11_scalars(yaml: &str) -> String {
+    quote_whole_plain_scalars(yaml, '"', plain_typed_scalar_needs_quote)
+}
+
+fn quote_whole_plain_scalars(yaml: &str, quote: char, needs_quote: fn(&str) -> bool) -> String {
     let b = yaml.as_bytes();
     let mut out = String::with_capacity(yaml.len());
     let mut i = 0;
@@ -744,11 +684,12 @@ pub(crate) fn quote_plain_yaml11_scalars(yaml: &str) -> String {
 
         if let Some(end) = scan_plain_scalar(yaml, i, !flow.is_empty(), expect_key) {
             let scalar = &yaml[i..end];
-            if plain_typed_scalar_needs_quote(scalar) {
-                // Double quotes match serde_yaml_ng's quoted strings.
-                out.push('"');
+            if needs_quote(scalar) {
+                // Single quotes for binary integers, double quotes for
+                // the other typed scalars. Both match serde_yaml_ng.
+                out.push(quote);
                 out.push_str(scalar);
-                out.push('"');
+                out.push(quote);
             } else {
                 out.push_str(scalar);
             }
@@ -884,11 +825,8 @@ pub(crate) fn yaml11_typed_string_literal(s: &str) -> Option<String> {
     })
 }
 
-fn is_yaml_token_boundary(c: u8) -> bool {
-    // Hyphen is part of a plain scalar (`pre-0b10`, `0b10-beta`), not a
-    // token edge. Treating it as one quoted only the `0b` slice and
-    // changed the parsed string.
-    c.is_ascii_whitespace() || matches!(c, b':' | b'[' | b'{' | b',' | b']' | b'}')
+fn is_whole_yaml11_binary(scalar: &str) -> bool {
+    matches!(plain_binary_len(scalar), Some(len) if len == scalar.len())
 }
 
 fn plain_binary_len(s: &str) -> Option<usize> {
@@ -1098,6 +1036,24 @@ mod tests {
             "id: '0b10'\n"
         );
         assert_eq!(super::quote_plain_yaml11_binary("- 0b10\n"), "- '0b10'\n");
+        assert_eq!(
+            super::quote_plain_yaml11_binary("note: build 0b10 now\n"),
+            "note: build 0b10 now\n"
+        );
+        assert_eq!(
+            super::quote_plain_yaml11_binary("0b10: keep\n"),
+            "'0b10': keep\n"
+        );
+        assert_eq!(
+            super::quote_plain_yaml11_binary("{0b10: keep}\n"),
+            "{'0b10': keep}\n"
+        );
+        assert_eq!(
+            super::quote_plain_yaml11_binary("id: +0b1\n"),
+            "id: '+0b1'\n"
+        );
+        let block = "note: |\n  0b10\nnext: 1\n";
+        assert_eq!(super::quote_plain_yaml11_binary(block), block);
     }
 
     #[test]
