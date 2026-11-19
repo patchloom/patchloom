@@ -568,7 +568,9 @@ fn emit_patch_files_output(
                 eprintln!("patch check: {} -- {}: {}", r.path, label, err);
             } else if let Some(n) = r.conflicts {
                 eprintln!("patch check: {} -- {} ({} conflicts)", r.path, label, n);
-            } else if r.status != "clean" && r.status != "unchanged" && r.status != "applied" {
+            } else if r.status == "applied" {
+                eprintln!("applied {}", r.path);
+            } else if r.status != "clean" && r.status != "unchanged" {
                 eprintln!("patch check: {} -- {}", r.path, label);
             }
         }
