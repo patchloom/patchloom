@@ -656,7 +656,12 @@ fn strip_leading_heading<'a>(text: &'a str, heading: &str) -> &'a str {
     let (level, query) = normalize_heading_query(heading);
     let first_line = crate::ops::file::text_lines(text).next().unwrap_or("");
     let (first_level, first_text) = normalize_heading_query(first_line);
-    if first_level.is_some() && first_text == query && (level.is_none() || first_level == level) {
+    let query_text = strip_atx_closing(query);
+    let first_plain = strip_atx_closing(first_text);
+    if first_level.is_some()
+        && first_plain == query_text
+        && (level.is_none() || first_level == level)
+    {
         let after_line = &text[first_line.len()..];
         skip_one_eol(after_line)
     } else {
@@ -1022,6 +1027,48 @@ fn table_column_count(row: &str) -> usize {
     t.matches('|').count().saturating_sub(1)
 }
 
+enum FenceStep {
+    Outside,
+    /// This line opens or closes a fence.
+    Boundary,
+    Inside,
+}
+
+/// CommonMark fence tracking shared with heading parse. A fenced example
+/// table is not the section's table.
+fn fence_step(fence: &mut Option<(u8, usize)>, line: &str) -> FenceStep {
+    let trimmed = line.trim_start_matches(' ');
+    let indent = line.len() - trimmed.len();
+    if indent <= 3 {
+        if let Some((ch, min_len)) = *fence {
+            let count = trimmed.bytes().take_while(|&b| b == ch).count();
+            if count >= min_len {
+                let after_fence = &trimmed[count..];
+                if after_fence.bytes().all(|b| b == b' ' || b == b'\t') {
+                    *fence = None;
+                    return FenceStep::Boundary;
+                }
+            }
+            return FenceStep::Inside;
+        }
+        let backticks = trimmed.bytes().take_while(|&b| b == b'`').count();
+        if backticks >= 3 && !trimmed[backticks..].contains('`') {
+            *fence = Some((b'`', backticks));
+            return FenceStep::Boundary;
+        }
+        let tildes = trimmed.bytes().take_while(|&b| b == b'~').count();
+        if tildes >= 3 {
+            *fence = Some((b'~', tildes));
+            return FenceStep::Boundary;
+        }
+    }
+    if fence.is_some() {
+        FenceStep::Inside
+    } else {
+        FenceStep::Outside
+    }
+}
+
 pub fn table_append_in(
     content: &str,
     body_start: usize,
@@ -1032,6 +1079,7 @@ pub fn table_append_in(
     let body = &content[body_start..body_end];
     let mut last_data_end: Option<usize> = None;
     let mut in_table = false;
+    let mut fence: Option<(u8, usize)> = None;
     let mut pos = body_start;
 
     for line in crate::ops::file::text_lines(body) {
@@ -1048,6 +1096,19 @@ pub fn table_append_in(
         } else {
             line_byte_end
         };
+
+        match fence_step(&mut fence, line) {
+            FenceStep::Inside => {
+                pos = next_pos;
+                continue;
+            }
+            FenceStep::Boundary if in_table && fence.is_some() => break,
+            FenceStep::Boundary => {
+                pos = next_pos;
+                continue;
+            }
+            FenceStep::Outside => {}
+        }
 
         if is_table_row(line) {
             in_table = true;
@@ -1079,8 +1140,11 @@ pub fn table_append_in(
     // table to prevent silent corruption of markdown tables (#1172).
     let expected_cols = {
         let section = &content[body_start..body_end];
+        let mut fence = None;
         crate::ops::file::text_lines(section)
-            .find(|l| is_separator_row(l))
+            .find(|l| {
+                matches!(fence_step(&mut fence, l), FenceStep::Outside) && is_separator_row(l)
+            })
             .map(table_column_count)
     };
     if let Some(expected) = expected_cols {

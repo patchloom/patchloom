@@ -143,6 +143,14 @@ mod basic {
     }
 
     #[test]
+    fn replace_section_strips_closing_hash_echo() {
+        let content = "# Title\nOld\n# Next\n";
+        let result = replace_section_in(content, "Title", "# Title #\nNew\n").unwrap();
+        assert_eq!(result, "# Title\nNew\n# Next\n");
+        assert_eq!(result.matches("# Title").count(), 1);
+    }
+
+    #[test]
     fn replace_section_strips_duplicate_heading_level2() {
         let content = "# Doc\n\n## Usage\n\nOld usage.\n\n## Contributing\n\nPRs welcome.\n";
         let result = replace_section_in(content, "## Usage", "## Usage\n\nNew usage.").unwrap();
@@ -241,6 +249,21 @@ mod basic {
         // First occurrence kept, second removed
         assert!(result.contains("First"));
         assert!(!result.contains("Second"));
+    }
+
+    #[test]
+    fn table_append_skips_fenced_example() {
+        let content = "# Docs\n\n```md\n| A | B |\n|---|---|\n| 1 | 2 |\n```\n\n| A | B |\n|---|---|\n| 9 | 9 |\n";
+        let (start, end) = find_section(content, "Docs").unwrap();
+        let result = table_append_in(content, start, end, "| 3 | 4 |").unwrap();
+        assert!(
+            result.contains("| 1 | 2 |\n```"),
+            "example fence must stay closed: {result}"
+        );
+        assert!(
+            result.contains("| 9 | 9 |\n| 3 | 4 |\n"),
+            "row belongs on the real table: {result}"
+        );
     }
 
     #[test]
