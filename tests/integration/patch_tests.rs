@@ -68,7 +68,8 @@ fn test_patch_apply_with_apply_flag_writes_file() {
         .arg(&patch_file)
         .arg("--apply")
         .assert()
-        .code(0);
+        .code(0)
+        .stderr(predicate::str::contains("applied test.txt"));
 
     let content = fs::read_to_string(&file).unwrap();
     assert_eq!(content, "line1\nnew line\nline3\n");

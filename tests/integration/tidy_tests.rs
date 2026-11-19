@@ -57,6 +57,28 @@ fn test_tidy_check_detects_missing_newline() {
         .code(2);
 }
 
+/// Text `tidy fix --apply` names the file it wrote. JSON stays on stdout.
+#[test]
+fn test_tidy_fix_apply_prints_fixed_path() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("spaced.txt");
+    fs::write(&file, "alpha \n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tidy")
+        .arg("fix")
+        .arg(&file)
+        .arg("--apply")
+        .assert()
+        .code(0)
+        .stderr(predicate::str::contains("fixed"))
+        .stderr(predicate::str::contains("spaced.txt"));
+
+    let body = fs::read_to_string(&file).unwrap();
+    assert_eq!(body, "alpha\n", "trailing space must be gone: {body:?}");
+}
+
 /// Bare `tidy fix --apply` must unmix mixed EOL so a follow-up check is clean.
 #[test]
 fn test_tidy_fix_defaults_unmix_mixed_eol() {
