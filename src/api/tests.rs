@@ -178,6 +178,41 @@ fn doc_get_reads_value() {
 }
 
 #[test]
+fn doc_get_properties_space_separator_and_bad_unicode() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("app.properties");
+    fs::write(
+        &file,
+        "host localhost\nname\tpatchloom\nsite:localhost\nmsg=a\\fb\n",
+    )
+    .unwrap();
+
+    assert_eq!(
+        doc_get(&file, "host").unwrap(),
+        serde_json::json!("localhost")
+    );
+    assert_eq!(
+        doc_get(&file, "name").unwrap(),
+        serde_json::json!("patchloom")
+    );
+    assert_eq!(
+        doc_get(&file, "site").unwrap(),
+        serde_json::json!("localhost")
+    );
+    assert_eq!(
+        doc_get(&file, "msg").unwrap(),
+        serde_json::json!("a\u{000c}b")
+    );
+
+    fs::write(&file, "port=1\nmsg=\\u12\n").unwrap();
+    let err = doc_get(&file, "port").unwrap_err();
+    assert!(
+        crate::exit::is_parse_error(&err),
+        "short \\\\u must stay a parse error through doc_get: {err}"
+    );
+}
+
+#[test]
 fn doc_has_returns_true_for_existing() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("config.json");
