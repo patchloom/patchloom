@@ -278,6 +278,13 @@ fn patch_write(
         }
         // Strict sole-path (#1894): binary / invalid UTF-8 → Binary / InvalidEncoding.
         // 100% copy loads source bytes as text when possible; dest is still written.
+        // Match the files/cli rename and copy checks: a source outside the
+        // guard must fail before this fallback reads or deletes it.
+        if pf.rename_from.is_some() {
+            super::ensure_contained_entry_resolved(guard, &load_path)?;
+        } else if pf.copy_from.is_some() {
+            super::ensure_contained_resolved(guard, &load_path)?;
+        }
         let original = if pf.copy_from.is_some() {
             crate::files::load_text_strict(&load_path, load_rel)?
         } else if pf.is_creation {
@@ -855,4 +862,30 @@ pub fn apply_patch_file_with_replace_all(
         results.push(edit);
     }
     Ok(results)
+}
+
+#[cfg(all(test, not(any(feature = "cli", feature = "files"))))]
+mod tests {
+    use crate::api::{ApplyMode, apply_patch, is_guard_rejected};
+    use crate::containment::PathGuard;
+
+    #[test]
+    fn no_files_apply_patch_rename_keeps_outside_source() {
+        let parent = tempfile::TempDir::new().unwrap();
+        let ws = parent.path().join("ws");
+        std::fs::create_dir(&ws).unwrap();
+        let outside = parent.path().join("secret.txt");
+        std::fs::write(&outside, "secret\n").unwrap();
+        let guard = PathGuard::builder(ws.clone()).build().unwrap();
+        let patch = "\
+diff --git a/../secret.txt b/inside.txt\n\
+similarity index 100%\n\
+rename from ../secret.txt\n\
+rename to inside.txt\n";
+        let dest = ws.join("inside.txt");
+        let err = apply_patch(&dest, patch, ApplyMode::Apply, Some(&guard)).unwrap_err();
+        assert!(is_guard_rejected(&err), "{err}");
+        assert_eq!(std::fs::read_to_string(&outside).unwrap(), "secret\n");
+        assert!(!dest.exists());
+    }
 }
