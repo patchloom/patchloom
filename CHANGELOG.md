@@ -11,6 +11,14 @@ present (applied to the GitHub Release body by the host job). Versioned
 sections below are managed by release-please.
 
 
+## [0.37.9](https://github.com/patchloom/patchloom/compare/patchloom-v0.37.8...patchloom-v0.37.9) (2026-11-19)
+
+
+### Bug Fixes
+
+* do not join a properties comment that ends in a backslash ([#2749](https://github.com/patchloom/patchloom/issues/2749)) ([35d4718](https://github.com/patchloom/patchloom/commit/35d4718f726fbe935136cd5a4866c2e164a1b889)), closes [#2748](https://github.com/patchloom/patchloom/issues/2748)
+* say when dedupe-headings actually removed a duplicate ([#2752](https://github.com/patchloom/patchloom/issues/2752)) ([86ceee5](https://github.com/patchloom/patchloom/commit/86ceee504443cb9616b2292e996b656652f0da17))
+
 ## [0.37.8](https://github.com/patchloom/patchloom/compare/patchloom-v0.37.7...patchloom-v0.37.8) (2026-11-18)
 
 
