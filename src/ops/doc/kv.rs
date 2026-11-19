@@ -60,15 +60,22 @@ fn is_comment_line(trimmed: &str) -> bool {
 
 fn parse_env(content: &str) -> Map<String, Value> {
     let mut map = Map::new();
-    for line in content.lines() {
-        if let Some((key, val)) = parse_env_assignment(line) {
+    let lines: Vec<&str> = content.lines().collect();
+    let mut i = 0;
+    while i < lines.len() {
+        if let Some((key, raw)) = split_env_key_raw(lines[i]) {
+            let (val, used) = read_env_value(&lines[i..], raw);
             map.insert(key, Value::String(val));
+            i += used.max(1);
+        } else {
+            i += 1;
         }
     }
     map
 }
 
-fn parse_env_assignment(line: &str) -> Option<(String, String)> {
+/// Key and the raw text after `=`. Comments and blank lines are [`None`].
+fn split_env_key_raw(line: &str) -> Option<(String, &str)> {
     let trimmed = line.trim();
     if trimmed.is_empty() || trimmed.starts_with('#') {
         return None;
@@ -79,8 +86,40 @@ fn parse_env_assignment(line: &str) -> Option<(String, String)> {
     if key.is_empty() || key.contains(char::is_whitespace) {
         return None;
     }
-    let raw = &rest[eq + 1..];
-    Some((key.to_string(), env_value_and_comment(raw).0))
+    Some((key.to_string(), &rest[eq + 1..]))
+}
+
+/// A quoted value may continue on later physical lines. `used` is how many
+/// lines belong to this assignment. An unclosed quote stays on the first line.
+fn read_env_value(lines: &[&str], raw0: &str) -> (String, usize) {
+    let single = env_value_and_comment(raw0).0;
+    let body = raw0.trim_start();
+    let Some(quote @ ('"' | '\'')) = body.chars().next() else {
+        return (single, 1);
+    };
+    if quoted_env_closed(body, quote) {
+        return (single, 1);
+    }
+    let mut joined = body.to_string();
+    for (offset, extra) in lines.iter().enumerate().skip(1) {
+        joined.push('\n');
+        joined.push_str(extra);
+        if let Some((value, after)) = scan_env_quoted(&joined, quote) {
+            let rest = after.trim_start();
+            if rest.is_empty() || rest.starts_with('#') {
+                return (value, offset + 1);
+            }
+            return (single, 1);
+        }
+    }
+    (single, 1)
+}
+
+fn quoted_env_closed(body: &str, quote: char) -> bool {
+    scan_env_quoted(body, quote).is_some_and(|(_, after)| {
+        let rest = after.trim_start();
+        rest.is_empty() || rest.starts_with('#')
+    })
 }
 
 /// Value plus a trailing `#` comment suffix (including its leading whitespace).
@@ -515,14 +554,22 @@ fn read_properties_hex4(chars: &mut impl Iterator<Item = char>) -> Result<u32, &
 }
 
 fn quote_if_needed(s: &str) -> String {
-    if s.is_empty()
-        || s.chars()
-            .any(|c| c.is_whitespace() || c == '#' || c == ';' || c == '=')
-    {
-        format!("\"{}\"", s.replace('"', "\\\""))
-    } else {
-        s.to_string()
+    let needs = s.is_empty()
+        || s.chars().any(|c| {
+            c.is_whitespace() || matches!(c, '#' | ';' | '=' | '"' | '\'' | '\\' | '\n' | '\r')
+        });
+    if !needs {
+        return s.to_string();
     }
+    let mut out = String::from("\"");
+    for c in s.chars() {
+        if matches!(c, '\\' | '"' | '\'') {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out.push('"');
+    out
 }
 
 fn value_as_string(v: &Value) -> Option<String> {
@@ -542,11 +589,11 @@ fn breaks_kv_line(s: &str) -> bool {
 /// Env and ini readers split on the first `=` and do not treat `\` as an
 /// escape in the key. A key or value that would parse as another line is rejected.
 fn env_key_reads_back(key: &str, value: &str) -> bool {
-    if breaks_kv_line(key) || breaks_kv_line(value) {
+    if breaks_kv_line(key) || value.contains('\r') {
         return false;
     }
-    let line = format!("{key}={}", quote_if_needed(value));
-    parse_env_assignment(&line).is_some_and(|(k, _)| k == key)
+    let text = format!("{key}={}", quote_if_needed(value));
+    parse_env(&text).get(key).and_then(Value::as_str) == Some(value)
 }
 
 fn ensure_env_key_reads_back(key: &str, value: &str) -> anyhow::Result<()> {
@@ -785,11 +832,46 @@ fn replace_properties_line(line: &str, new_s: &str) -> Option<String> {
     ))
 }
 
+struct EnvSpan {
+    start: usize,
+    end: usize,
+    assignment: Option<(String, String)>,
+}
+
+fn logical_env_spans(lines: &[String]) -> Vec<EnvSpan> {
+    let refs: Vec<&str> = lines.iter().map(String::as_str).collect();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < refs.len() {
+        if let Some((key, raw)) = split_env_key_raw(refs[i]) {
+            let (val, used) = read_env_value(&refs[i..], raw);
+            let used = used.max(1);
+            out.push(EnvSpan {
+                start: i,
+                end: i + used,
+                assignment: Some((key, val)),
+            });
+            i += used;
+        } else {
+            out.push(EnvSpan {
+                start: i,
+                end: i + 1,
+                assignment: None,
+            });
+            i += 1;
+        }
+    }
+    out
+}
+
 fn splice_flat(
     lines: &mut Vec<String>,
     old_obj: &Map<String, Value>,
     new_obj: &Map<String, Value>,
 ) -> Option<()> {
+    let spans = logical_env_spans(lines);
+    let mut range_edits: Vec<(usize, usize, Vec<String>)> = Vec::new();
+    let mut appends = Vec::new();
     for (key, new_v) in new_obj {
         let new_s = value_as_string(new_v)?;
         if old_obj.get(key) == Some(new_v) {
@@ -799,34 +881,37 @@ fn splice_flat(
         if !env_key_reads_back(key, &new_s) {
             return None;
         }
-        if let Some(idx) = find_last_env_line(lines, key) {
-            lines[idx] = replace_env_value(&lines[idx], &new_s);
-        } else {
-            lines.push(format!("{key}={}", quote_if_needed(&new_s)));
-        }
-    }
-    let mut remove = Vec::new();
-    for (i, line) in lines.iter().enumerate() {
-        if let Some((k, _)) = parse_env_assignment(line)
-            && !new_obj.contains_key(&k)
+        if let Some(span) = spans
+            .iter()
+            .rev()
+            .find(|span| span.assignment.as_ref().is_some_and(|(k, _)| k == key))
         {
-            remove.push(i);
+            let rewritten = if span.end - span.start == 1 && !new_s.contains('\n') {
+                replace_env_value(&lines[span.start], &new_s)
+            } else {
+                format!("{key}={}", quote_if_needed(&new_s))
+            };
+            range_edits.push((span.start, span.end, vec![rewritten]));
+        } else {
+            appends.push(format!("{key}={}", quote_if_needed(&new_s)));
         }
     }
-    for i in remove.into_iter().rev() {
-        lines.remove(i);
+    for span in &spans {
+        if range_edits.iter().any(|(start, _, _)| *start == span.start) {
+            continue;
+        }
+        if let Some((k, _)) = &span.assignment
+            && !new_obj.contains_key(k)
+        {
+            range_edits.push((span.start, span.end, Vec::new()));
+        }
     }
+    range_edits.sort_by_key(|edit| std::cmp::Reverse(edit.0));
+    for (start, end, new_lines) in range_edits {
+        lines.splice(start..end, new_lines);
+    }
+    lines.extend(appends);
     Some(())
-}
-
-fn find_last_env_line(lines: &[String], key: &str) -> Option<usize> {
-    let mut hit = None;
-    for (i, line) in lines.iter().enumerate() {
-        if parse_env_assignment(line).is_some_and(|(k, _)| k == key) {
-            hit = Some(i);
-        }
-    }
-    hit
 }
 
 fn replace_env_value(line: &str, new_s: &str) -> String {
@@ -1468,16 +1553,56 @@ mod tests {
     }
 
     #[test]
-    fn env_value_with_a_line_break_is_invalid_input() {
+    fn env_value_with_a_cr_is_invalid_input() {
         let orig = "KEY=1\n";
         let old = parse_kv(orig, FileFormat::Env).unwrap();
-        for value in ["a\npassword=owned", "a\rpassword=owned"] {
-            let mut new = old.clone();
-            new["KEY"] = json!(value);
-            let err = serialize_kv_preserving(orig, &old, &new, FileFormat::Env).unwrap_err();
-            assert!(crate::exit::is_invalid_input(&err), "{value:?}: {err}");
-            assert!(err.to_string().contains("split"), "{err}");
-        }
+        let mut new = old.clone();
+        new["KEY"] = json!("a\rpassword=owned");
+        let err = serialize_kv_preserving(orig, &old, &new, FileFormat::Env).unwrap_err();
+        assert!(crate::exit::is_invalid_input(&err), "{err}");
+        assert!(err.to_string().contains("split"), "{err}");
+    }
+
+    #[test]
+    fn env_multiline_quotes_and_quoted_tokens_round_trip() {
+        let orig = "\
+# keep
+CERT=\"-----BEGIN CERTIFICATE-----
+MIIF
+-----END CERTIFICATE-----\"
+PORT=1
+";
+        let old = parse_kv(orig, FileFormat::Env).unwrap();
+        assert_eq!(
+            old["CERT"],
+            json!("-----BEGIN CERTIFICATE-----\nMIIF\n-----END CERTIFICATE-----"),
+            "{old}"
+        );
+        assert!(old.get("MIIF").is_none(), "{old}");
+        let mut sibling = old.clone();
+        sibling["PORT"] = json!("2");
+        let out = serialize_kv_preserving(orig, &old, &sibling, FileFormat::Env).unwrap();
+        assert!(out.contains("# keep"), "{out:?}");
+        assert!(out.contains("MIIF"), "{out:?}");
+        let got = parse_kv(&out, FileFormat::Env).unwrap();
+        assert_eq!(got["CERT"], old["CERT"], "{out:?}");
+        assert_eq!(got["PORT"], json!("2"), "{out:?}");
+
+        let mut cert = old.clone();
+        cert["CERT"] = json!("a\npassword=owned");
+        let out = serialize_kv_preserving(orig, &old, &cert, FileFormat::Env).unwrap();
+        let got = parse_kv(&out, FileFormat::Env).unwrap();
+        assert_eq!(got["CERT"], json!("a\npassword=owned"), "{out:?}");
+        assert!(got.get("password").is_none(), "{got}");
+
+        let written = serialize_kv(
+            &json!({"GREETING": "\"hello\"", "FLAG": "'yes'"}),
+            FileFormat::Env,
+        )
+        .unwrap();
+        let got = parse_kv(&written, FileFormat::Env).unwrap();
+        assert_eq!(got["GREETING"], json!("\"hello\""), "{written:?}");
+        assert_eq!(got["FLAG"], json!("'yes'"), "{written:?}");
     }
 
     #[test]
