@@ -175,6 +175,10 @@ fn emit_tidy_fix_output(
             "refused": refused,
             "diff": diff_text,
         }))?;
+    } else if !global.quiet && applied == Some(true) {
+        for file in fix_files {
+            eprintln!("fixed {}", file.path);
+        }
     }
     Ok(())
 }
