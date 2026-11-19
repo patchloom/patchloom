@@ -39,6 +39,19 @@ def test_llvm_exception_filtered():
     assert "2 issue(s)" in out
 
 
+def test_rustix_llvm_exception_filtered():
+    issues = [
+        {
+            "revisionId": "cargo+rustix$1.1.6",
+            "license": "apache-2.0 WITH llvm-exception",
+            "type": "policy_flag",
+        },
+    ]
+    rc, out = run_filter(issues)
+    assert rc == 0, f"Expected 0, got {rc}: {out}"
+    assert "1 issue(s)" in out
+
+
 def test_r_efi_filtered():
     issues = [
         {"revisionId": "cargo+r-efi$4.5.0", "license": "LGPL-2.1-or-later", "type": "policy_flag"},
