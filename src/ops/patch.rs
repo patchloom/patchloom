@@ -925,12 +925,23 @@ pub fn apply_hunks(original: &str, hunks: &[Hunk]) -> Result<String, String> {
                     // Else keep prior had_final_newline (preserve EOF when only
                     // rewriting the last line without git markers).
                 }
-                Some(PatchLine::Context(_)) if hunk.old_no_final_newline => {
-                    // EOF context line that lacked NL on the old side.
-                    had_final_newline = false;
-                }
                 Some(PatchLine::Context(_)) if hunk.new_no_final_newline => {
                     had_final_newline = false;
+                }
+                Some(PatchLine::Context(_)) if hunk.old_no_final_newline => {
+                    // The marker names the last hunk line. On a removed
+                    // line, that line lacked a newline and the context
+                    // line that remains still has one. On a context line,
+                    // the file still ends without a newline.
+                    had_final_newline = matches!(hunk.lines.last(), Some(PatchLine::Remove(_)));
+                }
+                None if hunk.old_no_final_newline
+                    && !hunk.new_no_final_newline
+                    && !src_lines.is_empty() =>
+                {
+                    // A zero-context deletion of an unterminated last
+                    // line. The line before it kept its terminator.
+                    had_final_newline = true;
                 }
                 _ => {}
             }

@@ -976,6 +976,54 @@ mod format_preservation {
         let result = apply_hunks(original, &files[0].hunks).unwrap();
         assert_eq!(result, "line\n");
     }
+
+    #[test]
+    fn apply_hunks_keeps_newline_when_deleting_unterminated_last_line() {
+        // git diff of `a\nb` to `a\n`. The marker belongs to the removed
+        // line, so the line that remains keeps its newline.
+        let original = "a\nb";
+        let diff = "\
+--- a/f.txt
++++ b/f.txt
+@@ -1,2 +1 @@
+ a
+-b
+\\ No newline at end of file
+";
+        let files = parse_patch(diff).unwrap();
+        let result = apply_hunks(original, &files[0].hunks).unwrap();
+        assert_eq!(result, "a\n");
+    }
+
+    #[test]
+    fn apply_hunks_keeps_newline_when_zero_context_deletes_unterminated_last_line() {
+        let original = "a\nb";
+        let diff = "\
+--- a/f.txt
++++ b/f.txt
+@@ -2 +1,0 @@
+-b
+\\ No newline at end of file
+";
+        let files = parse_patch(diff).unwrap();
+        let result = apply_hunks(original, &files[0].hunks).unwrap();
+        assert_eq!(result, "a\n");
+    }
+
+    #[test]
+    fn apply_hunks_context_marker_still_omits_final_newline() {
+        let original = "b";
+        let diff = "\
+--- a/f.txt
++++ b/f.txt
+@@ -1 +1 @@
+ b
+\\ No newline at end of file
+";
+        let files = parse_patch(diff).unwrap();
+        let result = apply_hunks(original, &files[0].hunks).unwrap();
+        assert_eq!(result, "b");
+    }
 }
 
 mod regression {
