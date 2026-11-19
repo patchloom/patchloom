@@ -58,6 +58,12 @@ def main() -> int:
         return fail("aggregate ci job must read needs.changes.result")
     if '"$CHANGES"' not in ci_job:
         return fail("aggregate ci gate must read the changes result")
+    if not re.search(r"^    needs:.*\bsemver-checks\b", ci_job, re.M):
+        return fail("aggregate ci job must need the semver-checks job")
+    if "needs.semver-checks.result" not in ci_job:
+        return fail("aggregate ci job must read needs.semver-checks.result")
+    if '"$SEMVER"' not in ci_job:
+        return fail("aggregate ci gate must read the semver-checks result")
     if (
         '[ "$r" = "failure" ] || [ "$r" = "cancelled" ] || [ "$r" = "abandoned" ]'
         not in ci_job
