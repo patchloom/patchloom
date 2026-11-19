@@ -6,13 +6,14 @@ Exit 1 if any genuine issues remain after filtering.
 
 Documented false positives
 --------------------------
-1. cc, compiler_builtins, wasi (and other Rust compiler infrastructure)
-   apache-2.0 WITH llvm-exception
+1. cc, compiler_builtins, wasi, rustix (and other crates that publish
+   apache-2.0 WITH llvm-exception)
    The LLVM exception explicitly permits compiling code with these
    crates without the Apache-2.0 license applying to the compiled
-   output. Standard Rust compiler infrastructure; affects every Rust
-   project. FOSSA flags the "WITH llvm-exception" clause as an
-   unrecognized license modifier.
+   output. deny.toml already allows this expression. FOSSA flags the
+   "WITH llvm-exception" clause as an unrecognized license modifier.
+   rustix has published that expression since at least 1.1.4. The
+   1.1.6 lockfile bump is what FOSSA flagged.
 
 2. r-efi  LGPL-2.1-or-later
    Pure UEFI type definitions (data structures, no executable code).
@@ -54,6 +55,8 @@ LLVM_EXCEPTION_CRATES = {
     "wit-bindgen-core",
     "wit-bindgen-rust",
     "wit-bindgen-rust-macro",
+    # rustix. Same FOSSA parse gap as the compiler crates above.
+    "rustix",
 }
 
 # License IDs that FOSSA uses for the LLVM exception variant.
