@@ -397,6 +397,14 @@ fn parse_ini(content: &str) -> anyhow::Result<Value> {
                     msg: format!("invalid ini section header on line {}: {trimmed}", idx + 1),
                 }));
             };
+            if root.get(&name).is_some_and(|v| !v.is_object()) {
+                return Err(anyhow::Error::new(crate::exit::ParseErrorError {
+                    msg: format!(
+                        "ini section [{name}] on line {} collides with a key of the same name",
+                        idx + 1
+                    ),
+                }));
+            }
             section = Some(name);
             continue;
         }
@@ -1337,6 +1345,19 @@ mod tests {
         let msg = err.to_string();
         assert!(msg.contains("line 3"), "{msg}");
         assert!(msg.contains("[broken"), "{msg}");
+    }
+
+    #[test]
+    fn ini_section_named_like_a_root_key_is_a_parse_error() {
+        let err = parse_kv(
+            "database = postgres\n[database]\nhost = localhost\n",
+            FileFormat::Ini,
+        )
+        .unwrap_err();
+        assert!(crate::exit::is_parse_error(&err), "{err}");
+        let msg = err.to_string();
+        assert!(msg.contains("[database]"), "{msg}");
+        assert!(msg.contains("line 2"), "{msg}");
     }
 
     #[test]
