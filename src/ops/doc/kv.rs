@@ -8,7 +8,7 @@ pub fn parse_kv(content: &str, format: FileFormat) -> anyhow::Result<Value> {
     match format {
         FileFormat::Env => Ok(Value::Object(parse_env(content))),
         FileFormat::Ini => parse_ini(content),
-        FileFormat::Properties => Ok(Value::Object(parse_properties(content))),
+        FileFormat::Properties => Ok(Value::Object(parse_properties(content)?)),
         _ => Err(crate::exit::InvalidInputError {
             msg: "internal: parse_kv called for a non-kv format".into(),
         }
@@ -189,33 +189,26 @@ fn env_inline_comment_suffix(line: &str) -> String {
     }
 }
 
-fn parse_properties(content: &str) -> Map<String, Value> {
+fn parse_properties(content: &str) -> anyhow::Result<Map<String, Value>> {
     let mut map = Map::new();
     let lines: Vec<&str> = content.lines().collect();
-    let mut i = 0;
-    while i < lines.len() {
-        // Java logical lines: an odd trailing `\` joins the next natural
-        // line and drops that backslash. Leading whitespace on the
-        // continued line is not part of the value. A `#` or `!` line is
-        // skipped whole, so that backslash does not continue it. With no
-        // next line, the continuation backslash is dropped.
-        let mut logical = lines[i].to_string();
-        if !properties_comment_line(&logical) {
-            while properties_line_continues(&logical) && i + 1 < lines.len() {
-                logical.pop();
-                i += 1;
-                logical.push_str(lines[i].trim_start());
+    for line in logical_properties_lines(&lines) {
+        match parse_prop_assignment(&line.text) {
+            Ok(Some((key, val))) => {
+                map.insert(key, Value::String(val));
             }
-            if properties_line_continues(&logical) {
-                logical.pop();
+            Ok(None) => {}
+            Err(detail) => {
+                return Err(anyhow::Error::new(crate::exit::ParseErrorError {
+                    msg: format!(
+                        "malformed \\u escape in .properties on line {}: {detail}",
+                        line.line_no
+                    ),
+                }));
             }
         }
-        if let Some((key, val)) = parse_prop_assignment(&logical) {
-            map.insert(key, Value::String(val));
-        }
-        i += 1;
     }
-    map
+    Ok(map)
 }
 
 fn properties_comment_line(line: &str) -> bool {
@@ -232,23 +225,84 @@ fn properties_line_continues(line: &str) -> bool {
     n % 2 == 1
 }
 
-fn parse_prop_assignment(line: &str) -> Option<(String, String)> {
-    let trimmed = line.trim();
-    if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with('!') {
-        return None;
-    }
-    let sep = find_unescaped_prop_sep(trimmed)?;
-    let key = decode_properties_value(trimmed[..sep].trim());
-    if key.is_empty() {
-        return None;
-    }
-    Some((key, decode_properties_value(trimmed[sep + 1..].trim())))
+struct LogicalPropLine {
+    start: usize,
+    end: usize,
+    line_no: usize,
+    text: String,
 }
 
-/// First `=` or `:` that is not escaped with `\`.
-fn find_unescaped_prop_sep(s: &str) -> Option<usize> {
+/// Java logical lines: an odd trailing `\` joins the next natural line and
+/// drops that backslash. Leading whitespace on the continued line is not
+/// part of the value. A `#` or `!` line is skipped whole, so that backslash
+/// does not continue it. With no next line, the continuation backslash is
+/// dropped. Read and preserving write both use this so a wrapped value is
+/// one key.
+fn logical_properties_lines(lines: &[impl AsRef<str>]) -> Vec<LogicalPropLine> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < lines.len() {
+        let start = i;
+        let mut text = lines[i].as_ref().to_string();
+        if !properties_comment_line(&text) {
+            while properties_line_continues(&text) && i + 1 < lines.len() {
+                text.pop();
+                i += 1;
+                text.push_str(lines[i].as_ref().trim_start());
+            }
+            if properties_line_continues(&text) {
+                text.pop();
+            }
+        }
+        i += 1;
+        out.push(LogicalPropLine {
+            start,
+            end: i,
+            line_no: start + 1,
+            text,
+        });
+    }
+    out
+}
+
+fn parse_prop_assignment(line: &str) -> Result<Option<(String, String)>, &'static str> {
+    let Some(split) = split_properties_entry(line.trim_start_matches(is_prop_whitespace)) else {
+        return Ok(None);
+    };
+    let key = decode_properties_escapes(split.key_raw)?;
+    if key.is_empty() {
+        return Ok(None);
+    }
+    let val = decode_properties_escapes(split.value_raw)?;
+    Ok(Some((key, val)))
+}
+
+/// Space, tab, and form feed end a Java properties key. Line breaks do not.
+fn is_prop_whitespace(c: char) -> bool {
+    matches!(c, ' ' | '\t' | '\u{000c}')
+}
+
+struct PropSplit<'a> {
+    key_raw: &'a str,
+    value_raw: &'a str,
+    /// `=` or `:` when the line uses one, including after the key's whitespace.
+    delim: Option<char>,
+}
+
+/// Split one logical properties line the way `Properties.load` does.
+///
+/// The key runs to the first unescaped `=`, `:`, space, tab, or form feed.
+/// Whitespace after that is skipped, then one optional `=` or `:`. The rest
+/// is the value, including trailing spaces. A line with no separator is
+/// [`None`]. A blank line, a comment, or an empty key is [`None`].
+fn split_properties_entry(line: &str) -> Option<PropSplit<'_>> {
+    if line.is_empty() || line.starts_with('#') || line.starts_with('!') {
+        return None;
+    }
     let mut escaped = false;
-    for (idx, c) in s.char_indices() {
+    let mut sep_at = None;
+    let mut sep_is_delim = false;
+    for (idx, c) in line.char_indices() {
         if escaped {
             escaped = false;
             continue;
@@ -258,10 +312,36 @@ fn find_unescaped_prop_sep(s: &str) -> Option<usize> {
             continue;
         }
         if c == '=' || c == ':' {
-            return Some(idx);
+            sep_at = Some(idx);
+            sep_is_delim = true;
+            break;
+        }
+        if is_prop_whitespace(c) {
+            sep_at = Some(idx);
+            sep_is_delim = false;
+            break;
         }
     }
-    None
+    let sep_at = sep_at?;
+    if sep_at == 0 {
+        return None;
+    }
+    let sep_char = line[sep_at..].chars().next()?;
+    let mut rest = &line[sep_at + sep_char.len_utf8()..];
+    let mut delim = if sep_is_delim { Some(sep_char) } else { None };
+    rest = rest.trim_start_matches(is_prop_whitespace);
+    if delim.is_none()
+        && let Some(c @ ('=' | ':')) = rest.chars().next()
+    {
+        delim = Some(c);
+        rest = &rest[c.len_utf8()..];
+        rest = rest.trim_start_matches(is_prop_whitespace);
+    }
+    Some(PropSplit {
+        key_raw: &line[..sep_at],
+        value_raw: rest,
+        delim,
+    })
 }
 
 fn parse_ini(content: &str) -> anyhow::Result<Value> {
@@ -325,7 +405,7 @@ fn parse_ini_section(trimmed: &str) -> Option<String> {
     }
 }
 
-/// Escape `\`, `=`, `:`, newlines, and a leading `#` or `!` so a new key
+/// Escape `\`, separators, newlines, and a leading `#` or `!` so a new key
 /// round-trips through [`parse_prop_assignment`].
 fn encode_properties_key(s: &str) -> String {
     let mut out = String::new();
@@ -334,7 +414,9 @@ fn encode_properties_key(s: &str) -> String {
             '\\' => out.push_str("\\\\"),
             '\n' => out.push_str("\\n"),
             '\r' => out.push_str("\\r"),
-            '=' | ':' => {
+            '\t' => out.push_str("\\t"),
+            '\u{000c}' => out.push_str("\\f"),
+            ' ' | '=' | ':' => {
                 out.push('\\');
                 out.push(c);
             }
@@ -348,18 +430,20 @@ fn encode_properties_key(s: &str) -> String {
     out
 }
 
-/// Java `Properties` keeps quotes. Escape `\`, newlines, tabs, and leading
-/// whitespace. Do not wrap the value in quotes.
+/// Java `Properties` keeps quotes. Escape `\`, newlines, tabs, form feeds,
+/// and leading whitespace. Do not wrap the value in quotes.
 fn encode_properties_value(s: &str) -> String {
     let mut out = String::new();
     let mut chars = s.chars().peekable();
-    while matches!(chars.peek(), Some(c) if *c == ' ' || *c == '\t') {
+    while matches!(chars.peek(), Some(c) if *c == ' ' || *c == '\t' || *c == '\u{000c}') {
         let c = chars.next().unwrap();
-        if c == '\t' {
-            out.push_str("\\t");
-        } else {
-            out.push('\\');
-            out.push(c);
+        match c {
+            '\t' => out.push_str("\\t"),
+            '\u{000c}' => out.push_str("\\f"),
+            _ => {
+                out.push('\\');
+                out.push(c);
+            }
         }
     }
     for c in chars {
@@ -368,15 +452,16 @@ fn encode_properties_value(s: &str) -> String {
             '\n' => out.push_str("\\n"),
             '\r' => out.push_str("\\r"),
             '\t' => out.push_str("\\t"),
+            '\u{000c}' => out.push_str("\\f"),
             other => out.push(other),
         }
     }
     out
 }
 
-fn decode_properties_value(s: &str) -> String {
+fn decode_properties_escapes(s: &str) -> Result<String, &'static str> {
     if !s.contains('\\') {
-        return s.to_string();
+        return Ok(s.to_string());
     }
     let mut out = String::new();
     let mut chars = s.chars();
@@ -389,23 +474,44 @@ fn decode_properties_value(s: &str) -> String {
             Some('n') => out.push('\n'),
             Some('r') => out.push('\r'),
             Some('t') => out.push('\t'),
-            Some('u') => {
-                let hex: String = chars.by_ref().take(4).collect();
-                if hex.len() == 4
-                    && let Ok(cp) = u32::from_str_radix(&hex, 16)
-                    && let Some(ch) = char::from_u32(cp)
-                {
-                    out.push(ch);
-                } else {
-                    out.push('u');
-                    out.push_str(&hex);
-                }
-            }
+            Some('f') => out.push('\u{000c}'),
+            Some('u') => out.push(decode_properties_unicode(&mut chars)?),
             Some(other) => out.push(other),
             None => out.push('\\'),
         }
     }
-    out
+    Ok(out)
+}
+
+/// Four hex digits, or a `\u` surrogate pair, as one Unicode scalar.
+fn decode_properties_unicode(chars: &mut impl Iterator<Item = char>) -> Result<char, &'static str> {
+    let unit = read_properties_hex4(chars)?;
+    if (0xD800..=0xDBFF).contains(&unit) {
+        if chars.next() != Some('\\') || chars.next() != Some('u') {
+            return Err("\\u is not a Unicode character");
+        }
+        let low = read_properties_hex4(chars)?;
+        if !(0xDC00..=0xDFFF).contains(&low) {
+            return Err("\\u is not a Unicode character");
+        }
+        let cp = 0x10000 + (((unit - 0xD800) << 10) | (low - 0xDC00));
+        return char::from_u32(cp).ok_or("\\u is not a Unicode character");
+    }
+    if (0xDC00..=0xDFFF).contains(&unit) {
+        return Err("\\u is not a Unicode character");
+    }
+    char::from_u32(unit).ok_or("\\u is not a Unicode character")
+}
+
+fn read_properties_hex4(chars: &mut impl Iterator<Item = char>) -> Result<u32, &'static str> {
+    let mut hex = String::with_capacity(4);
+    for _ in 0..4 {
+        match chars.next() {
+            Some(c) if c.is_ascii_hexdigit() => hex.push(c),
+            _ => return Err("\\u needs four hex digits"),
+        }
+    }
+    u32::from_str_radix(&hex, 16).map_err(|_| "\\u needs four hex digits")
 }
 
 fn quote_if_needed(s: &str) -> String {
@@ -598,8 +704,8 @@ fn try_splice(
         .map(str::to_string)
         .collect();
     match format {
-        FileFormat::Env => splice_flat(&mut lines, old_obj, new_obj, KvStyle::Env)?,
-        FileFormat::Properties => splice_flat(&mut lines, old_obj, new_obj, KvStyle::Properties)?,
+        FileFormat::Env => splice_flat(&mut lines, old_obj, new_obj)?,
+        FileFormat::Properties => splice_properties(&mut lines, old_obj, new_obj)?,
         FileFormat::Ini => splice_ini(&mut lines, old_obj, new_obj)?,
         _ => return None,
     }
@@ -610,17 +716,79 @@ fn try_splice(
     Some(out)
 }
 
-#[derive(Clone, Copy)]
-enum KvStyle {
-    Env,
-    Properties,
+fn splice_properties(
+    lines: &mut Vec<String>,
+    old_obj: &Map<String, Value>,
+    new_obj: &Map<String, Value>,
+) -> Option<()> {
+    let spans = logical_properties_lines(lines);
+    let mut range_edits: Vec<(usize, usize, Vec<String>)> = Vec::new();
+    let mut appends = Vec::new();
+    for (key, new_v) in new_obj {
+        let new_s = value_as_string(new_v)?;
+        if old_obj.get(key) == Some(new_v) {
+            continue;
+        }
+        let mut found = None;
+        for span in spans.iter().rev() {
+            match parse_prop_assignment(&span.text) {
+                Ok(Some((k, _))) if k == *key => {
+                    found = Some((span.start, span.end, span.text.clone()));
+                    break;
+                }
+                Ok(_) => {}
+                Err(_) => return None,
+            }
+        }
+        if let Some((start, end, text)) = found {
+            let rewritten = replace_properties_line(&text, &new_s)?;
+            range_edits.push((start, end, vec![rewritten]));
+        } else {
+            appends.push(format!(
+                "{}={}",
+                encode_properties_key(key),
+                encode_properties_value(&new_s)
+            ));
+        }
+    }
+    for span in &spans {
+        if range_edits.iter().any(|(start, _, _)| *start == span.start) {
+            continue;
+        }
+        match parse_prop_assignment(&span.text) {
+            Ok(Some((k, _))) if !new_obj.contains_key(&k) => {
+                range_edits.push((span.start, span.end, Vec::new()));
+            }
+            Ok(_) => {}
+            Err(_) => return None,
+        }
+    }
+    range_edits.sort_by_key(|edit| std::cmp::Reverse(edit.0));
+    for (start, end, new_lines) in range_edits {
+        lines.splice(start..end, new_lines);
+    }
+    lines.extend(appends);
+    Some(())
+}
+
+/// Rewrite one logical properties line. Leading space, tab, and form feed
+/// stay. The separator character stays when the line used `=` or `:`.
+fn replace_properties_line(line: &str, new_s: &str) -> Option<String> {
+    let lead = line.len() - line.trim_start_matches(is_prop_whitespace).len();
+    let prefix = &line[..lead];
+    let split = split_properties_entry(&line[lead..])?;
+    let sep = split.delim.unwrap_or('=');
+    Some(format!(
+        "{prefix}{}{sep}{}",
+        split.key_raw,
+        encode_properties_value(new_s)
+    ))
 }
 
 fn splice_flat(
     lines: &mut Vec<String>,
     old_obj: &Map<String, Value>,
     new_obj: &Map<String, Value>,
-    style: KvStyle,
 ) -> Option<()> {
     for (key, new_v) in new_obj {
         let new_s = value_as_string(new_v)?;
@@ -628,29 +796,18 @@ fn splice_flat(
             continue;
         }
         // None falls through to serialize_env, which rejects the key.
-        if matches!(style, KvStyle::Env) && !env_key_reads_back(key, &new_s) {
+        if !env_key_reads_back(key, &new_s) {
             return None;
         }
-        if let Some(idx) = find_last_flat_line(lines, key, style) {
-            lines[idx] = replace_flat_value(&lines[idx], &new_s, style);
+        if let Some(idx) = find_last_env_line(lines, key) {
+            lines[idx] = replace_env_value(&lines[idx], &new_s);
         } else {
-            let written_key = match style {
-                KvStyle::Env => key.clone(),
-                KvStyle::Properties => encode_properties_key(key),
-            };
-            lines.push(format!(
-                "{written_key}={}",
-                encode_flat_value(style, &new_s)
-            ));
+            lines.push(format!("{key}={}", quote_if_needed(&new_s)));
         }
     }
     let mut remove = Vec::new();
     for (i, line) in lines.iter().enumerate() {
-        let parsed = match style {
-            KvStyle::Env => parse_env_assignment(line),
-            KvStyle::Properties => parse_prop_assignment(line),
-        };
-        if let Some((k, _)) = parsed
+        if let Some((k, _)) = parse_env_assignment(line)
             && !new_obj.contains_key(&k)
         {
             remove.push(i);
@@ -662,55 +819,33 @@ fn splice_flat(
     Some(())
 }
 
-fn find_last_flat_line(lines: &[String], key: &str, style: KvStyle) -> Option<usize> {
+fn find_last_env_line(lines: &[String], key: &str) -> Option<usize> {
     let mut hit = None;
     for (i, line) in lines.iter().enumerate() {
-        let parsed = match style {
-            KvStyle::Env => parse_env_assignment(line),
-            KvStyle::Properties => parse_prop_assignment(line),
-        };
-        if parsed.is_some_and(|(k, _)| k == key) {
+        if parse_env_assignment(line).is_some_and(|(k, _)| k == key) {
             hit = Some(i);
         }
     }
     hit
 }
 
-fn replace_flat_value(line: &str, new_s: &str, style: KvStyle) -> String {
+fn replace_env_value(line: &str, new_s: &str) -> String {
     let trimmed_start = line.len() - line.trim_start().len();
     let prefix = &line[..trimmed_start];
     let rest = line.trim_start();
-    let (head, suffix) = match style {
-        KvStyle::Env => {
-            let work = rest.strip_prefix("export ").unwrap_or(rest);
-            let export = if rest.starts_with("export ") {
-                "export "
-            } else {
-                ""
-            };
-            let eq = work.find('=').unwrap_or(work.len());
-            (
-                format!("{prefix}{export}{}=", work[..eq].trim_end()),
-                env_inline_comment_suffix(line),
-            )
-        }
-        KvStyle::Properties => {
-            let sep_at = find_unescaped_prop_sep(rest).unwrap_or(rest.len());
-            let sep = rest.as_bytes().get(sep_at).copied().unwrap_or(b'=') as char;
-            (
-                format!("{prefix}{}{sep}", rest[..sep_at].trim_end()),
-                String::new(),
-            )
-        }
+    let work = rest.strip_prefix("export ").unwrap_or(rest);
+    let export = if rest.starts_with("export ") {
+        "export "
+    } else {
+        ""
     };
-    format!("{head}{}{suffix}", encode_flat_value(style, new_s))
-}
-
-fn encode_flat_value(style: KvStyle, s: &str) -> String {
-    match style {
-        KvStyle::Env => quote_if_needed(s),
-        KvStyle::Properties => encode_properties_value(s),
-    }
+    let eq = work.find('=').unwrap_or(work.len());
+    format!(
+        "{prefix}{export}{}={}{}",
+        work[..eq].trim_end(),
+        quote_if_needed(new_s),
+        env_inline_comment_suffix(line)
+    )
 }
 
 fn splice_ini(
@@ -1440,6 +1575,129 @@ mod tests {
         assert_eq!(got["a\nb"], json!("c"));
         assert_eq!(got["a\rb"], json!("d"));
         assert!(got.get("b").is_none(), "{got}");
+    }
+
+    #[test]
+    fn properties_whitespace_separator_form_feed_and_unicode() {
+        let src = "\
+host localhost
+tabbed\tvalue
+site:localhost
+spaced: localhost
+equals = kept
+url http://example.com
+cheeses
+msg=a\\fb
+letter=\\u0041
+face=\\uD83D\\uDE00
+my\\ key=spaced key
+trail=localhost \n";
+        let got = parse_kv(src, FileFormat::Properties).unwrap();
+        assert_eq!(got["host"], json!("localhost"), "{got}");
+        assert_eq!(got["tabbed"], json!("value"), "{got}");
+        assert_eq!(got["site"], json!("localhost"), "{got}");
+        assert_eq!(got["spaced"], json!("localhost"), "{got}");
+        assert_eq!(got["equals"], json!("kept"), "{got}");
+        assert_eq!(got["url"], json!("http://example.com"), "{got}");
+        assert_eq!(got["msg"], json!("a\u{000c}b"), "{got}");
+        assert_eq!(got["letter"], json!("A"), "{got}");
+        assert_eq!(got["face"], json!("\u{1F600}"), "{got}");
+        assert_eq!(got["my key"], json!("spaced key"), "{got}");
+        assert!(got.get("cheeses").is_none(), "{got}");
+        assert_eq!(got["trail"], json!("localhost "), "{got}");
+        assert!(got.get("localhost").is_none(), "{got}");
+
+        let raw_ff = "host\u{000c}localhost\n";
+        let got = parse_kv(raw_ff, FileFormat::Properties).unwrap();
+        assert_eq!(got["host"], json!("localhost"), "{got}");
+
+        let orig = "# keep\nhost localhost\n";
+        let old = parse_kv(orig, FileFormat::Properties).unwrap();
+        let mut new = old.clone();
+        new["host"] = json!("127.0.0.1");
+        let out = serialize_kv_preserving(orig, &old, &new, FileFormat::Properties).unwrap();
+        assert!(out.contains("# keep"), "{out:?}");
+        assert!(out.contains("127.0.0.1"), "{out:?}");
+        let updated = parse_kv(&out, FileFormat::Properties).unwrap();
+        assert_eq!(updated["host"], json!("127.0.0.1"), "{out:?}");
+
+        let written = serialize_kv(
+            &json!({"my key": "v", "msg": "a\u{000c}b"}),
+            FileFormat::Properties,
+        )
+        .unwrap();
+        assert!(written.contains("my\\ key=v"), "{written:?}");
+        assert!(written.contains("msg=a\\fb"), "{written:?}");
+        let round = parse_kv(&written, FileFormat::Properties).unwrap();
+        assert_eq!(round["my key"], json!("v"), "{written:?}");
+        assert_eq!(round["msg"], json!("a\u{000c}b"), "{written:?}");
+
+        for src in [
+            "msg=\\u12\n",
+            "port=1\nmsg=\\u12\n",
+            "msg=\\u12GG\n",
+            "msg=\\uD800\n",
+        ] {
+            let err = parse_kv(src, FileFormat::Properties).unwrap_err();
+            assert!(crate::exit::is_parse_error(&err), "{src:?}: {err}");
+            assert!(err.to_string().contains("\\u"), "{src:?}: {err}");
+        }
+        let err = parse_kv("port=1\nmsg=\\u12\n", FileFormat::Properties).unwrap_err();
+        assert!(err.to_string().contains("line 2"), "{err}");
+        assert!(err.to_string().contains("hex"), "{err}");
+    }
+
+    #[test]
+    fn properties_preserving_write_keeps_a_wrapped_value() {
+        let orig = "# note\nfruits apple, banana, \\\n    cantaloupe watermelon\ncolor=red\n";
+        let old = parse_kv(orig, FileFormat::Properties).unwrap();
+        assert_eq!(
+            old["fruits"],
+            json!("apple, banana, cantaloupe watermelon"),
+            "{old}"
+        );
+        assert!(old.get("cantaloupe").is_none(), "{old}");
+        let mut sibling = old.clone();
+        sibling["color"] = json!("blue");
+        let out = serialize_kv_preserving(orig, &old, &sibling, FileFormat::Properties).unwrap();
+        assert!(out.contains("# note"), "{out:?}");
+        assert!(out.contains("cantaloupe"), "{out:?}");
+        let got = parse_kv(&out, FileFormat::Properties).unwrap();
+        assert_eq!(got["fruits"], old["fruits"], "{out:?}");
+        assert_eq!(got["color"], json!("blue"), "{out:?}");
+        assert!(got.get("cantaloupe").is_none(), "{got}");
+
+        let mut wrapped = old.clone();
+        wrapped["fruits"] = json!("pear");
+        let out = serialize_kv_preserving(orig, &old, &wrapped, FileFormat::Properties).unwrap();
+        let got = parse_kv(&out, FileFormat::Properties).unwrap();
+        assert_eq!(got["fruits"], json!("pear"), "{out:?}");
+        assert_eq!(got["color"], json!("red"), "{out:?}");
+        assert!(got.get("cantaloupe").is_none(), "{got}");
+
+        // A wrapped line that looks like another key must stay part of the value.
+        let collision = "name=ada\nmsg=hello \\\nname grace\n";
+        let old = parse_kv(collision, FileFormat::Properties).unwrap();
+        assert_eq!(old["name"], json!("ada"), "{old}");
+        assert_eq!(old["msg"], json!("hello name grace"), "{old}");
+        let mut new = old.clone();
+        new["name"] = json!("bea");
+        let out = serialize_kv_preserving(collision, &old, &new, FileFormat::Properties).unwrap();
+        let got = parse_kv(&out, FileFormat::Properties).unwrap();
+        assert_eq!(got["name"], json!("bea"), "{out:?}");
+        assert_eq!(got["msg"], json!("hello name grace"), "{out:?}");
+
+        // A `\u` that is only complete after the join must not drop the comment.
+        let split_u = "# note\nmsg=\\u00\\\n41\nport=1\n";
+        let old = parse_kv(split_u, FileFormat::Properties).unwrap();
+        assert_eq!(old["msg"], json!("A"), "{old}");
+        let mut new = old.clone();
+        new["port"] = json!("2");
+        let out = serialize_kv_preserving(split_u, &old, &new, FileFormat::Properties).unwrap();
+        assert!(out.contains("# note"), "{out:?}");
+        let got = parse_kv(&out, FileFormat::Properties).unwrap();
+        assert_eq!(got["msg"], json!("A"), "{out:?}");
+        assert_eq!(got["port"], json!("2"), "{out:?}");
     }
 
     #[test]
