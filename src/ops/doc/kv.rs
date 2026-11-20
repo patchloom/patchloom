@@ -1001,6 +1001,38 @@ fn insert_ini_root_line(lines: &mut Vec<String>, line: String) {
     }
 }
 
+/// Remove keys the section object no longer has, in one forward pass.
+///
+/// `ini_line_section` restarts from line 0, so calling it on every line
+/// of every section makes a one-key update scan the file once per section.
+fn remove_omitted_ini_section_keys(
+    lines: &mut Vec<String>,
+    section: &str,
+    inner: &Map<String, Value>,
+    old_inner: &Map<String, Value>,
+) {
+    let mut remove = Vec::new();
+    let mut current: Option<String> = None;
+    for (i, line) in lines.iter().enumerate() {
+        if let Some(name) = parse_ini_section(line.trim()) {
+            current = Some(name);
+            continue;
+        }
+        if current.as_deref() != Some(section) {
+            continue;
+        }
+        if let Some((key, _)) = parse_ini_assignment(line)
+            && !inner.contains_key(&key)
+            && old_inner.contains_key(&key)
+        {
+            remove.push(i);
+        }
+    }
+    for i in remove.into_iter().rev() {
+        lines.remove(i);
+    }
+}
+
 fn splice_ini(
     lines: &mut Vec<String>,
     old_obj: &Map<String, Value>,
@@ -1029,20 +1061,10 @@ fn splice_ini(
                         lines.insert(end, format!("{ik}={new_s}"));
                     }
                 }
-                if let Some(old_inner) = old_inner {
-                    let mut remove = Vec::new();
-                    for (i, line) in lines.iter().enumerate() {
-                        if ini_line_section(lines, i).as_deref() == Some(key.as_str())
-                            && let Some((k, _)) = parse_ini_assignment(line)
-                            && !inner.contains_key(&k)
-                            && old_inner.contains_key(&k)
-                        {
-                            remove.push(i);
-                        }
-                    }
-                    for i in remove.into_iter().rev() {
-                        lines.remove(i);
-                    }
+                if let Some(old_inner) = old_inner
+                    && old_inner.keys().any(|k| !inner.contains_key(k))
+                {
+                    remove_omitted_ini_section_keys(lines, key, inner, old_inner);
                 }
             }
             _ => {
@@ -1525,6 +1547,30 @@ mod tests {
         assert_eq!(got["theme"], json!("dark"), "{out:?}");
         assert!(got["db"].get("theme").is_none(), "{got}");
         assert_eq!(got["db"]["name"], json!("app"));
+    }
+
+    #[test]
+    fn ini_preserving_one_key_update_on_many_sections_stays_fast() {
+        let mut orig = String::new();
+        for section in 0..40 {
+            orig.push_str(&format!("[s{section}]\n"));
+            for key in 0..100 {
+                orig.push_str(&format!("k{key}=v\n"));
+            }
+        }
+        let old = parse_kv(&orig, FileFormat::Ini).unwrap();
+        let mut new = old.clone();
+        new["s0"]["k0"] = json!("changed");
+        let started = std::time::Instant::now();
+        let out = serialize_kv_preserving(&orig, &old, &new, FileFormat::Ini).unwrap();
+        let elapsed = started.elapsed();
+        assert!(
+            elapsed.as_millis() < 1000,
+            "one-key update of a 40-section ini took {elapsed:?}"
+        );
+        let got = parse_kv(&out, FileFormat::Ini).unwrap();
+        assert_eq!(got["s0"]["k0"], json!("changed"));
+        assert_eq!(got["s39"]["k99"], json!("v"));
     }
 
     #[test]
