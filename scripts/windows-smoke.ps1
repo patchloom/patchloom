@@ -378,7 +378,9 @@ try {
         New-Item -ItemType Directory -Path $jampReal | Out-Null
         Set-Content -LiteralPath (Join-Path $jampReal "keep.txt") -Value "keep`n" -NoNewline
         try {
-            New-Item -ItemType Junction -LiteralPath $jampLink -Target $jampReal | Out-Null
+            # New-Item has -Path, not -LiteralPath. -LiteralPath
+            # throws, the catch SKIPs, and delete never runs.
+            New-Item -ItemType Junction -Path $jampLink -Target $jampReal | Out-Null
             $r = Invoke-Pl --json --cwd $ws delete "jamp&echo" --apply
             $keep = Test-Path -LiteralPath (Join-Path $jampReal "keep.txt")
             $linkLeft = Test-Path -LiteralPath $jampLink
