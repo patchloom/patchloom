@@ -941,11 +941,57 @@ fn replace_env_value(line: &str, new_s: &str) -> String {
     )
 }
 
+/// Drop root keys and sections the new object no longer has.
+///
+/// The update loop only rewrites keys that remain. Without this pass,
+/// `doc delete` of a root key or a whole section reports `removed: 1`
+/// and leaves the old assignment on disk. A section that became a
+/// scalar, or a root key that became a section, would also leave the
+/// old line beside the new one.
+fn drop_stale_ini_lines(lines: &mut Vec<String>, new_obj: &Map<String, Value>) {
+    let mut remove = Vec::new();
+    let mut i = 0;
+    while i < lines.len() {
+        if let Some(name) = parse_ini_section(lines[i].trim()) {
+            let keep_section = matches!(new_obj.get(&name), Some(Value::Object(_)));
+            if !keep_section {
+                remove.push(i);
+                i += 1;
+                while i < lines.len() && parse_ini_section(lines[i].trim()).is_none() {
+                    if parse_ini_assignment(&lines[i]).is_some() {
+                        remove.push(i);
+                    }
+                    i += 1;
+                }
+                continue;
+            }
+        }
+        i += 1;
+    }
+    for (i, line) in lines.iter().enumerate() {
+        if remove.contains(&i) || ini_line_section(lines, i).is_some() {
+            continue;
+        }
+        if let Some((key, _)) = parse_ini_assignment(line) {
+            match new_obj.get(&key) {
+                None | Some(Value::Object(_)) => remove.push(i),
+                Some(_) => {}
+            }
+        }
+    }
+    remove.sort_unstable();
+    remove.dedup();
+    for i in remove.into_iter().rev() {
+        lines.remove(i);
+    }
+}
+
 fn splice_ini(
     lines: &mut Vec<String>,
     old_obj: &Map<String, Value>,
     new_obj: &Map<String, Value>,
 ) -> Option<()> {
+    drop_stale_ini_lines(lines, new_obj);
     for (key, new_v) in new_obj {
         match new_v {
             Value::Object(inner) => {
@@ -1392,6 +1438,67 @@ mod tests {
             let err = parse_kv(src, FileFormat::Ini).unwrap_err();
             assert!(crate::exit::is_parse_error(&err), "{src}: {err}");
         }
+    }
+
+    #[test]
+    fn ini_preserving_delete_drops_a_root_key() {
+        let orig = "; comment\nport=80\nhost=localhost\n\n[db]\nname=app\n";
+        let old = parse_kv(orig, FileFormat::Ini).unwrap();
+        let mut new = old.clone();
+        new.as_object_mut().unwrap().remove("host");
+        let out = serialize_kv_preserving(orig, &old, &new, FileFormat::Ini).unwrap();
+        assert!(out.contains("; comment\n"), "{out:?}");
+        assert!(out.contains("port=80\n"), "{out:?}");
+        assert!(out.contains("[db]\n"), "{out:?}");
+        assert!(out.contains("name=app\n"), "{out:?}");
+        assert!(!out.contains("host="), "{out:?}");
+        let got = parse_kv(&out, FileFormat::Ini).unwrap();
+        assert!(got.get("host").is_none(), "{got}");
+        assert_eq!(got["port"], json!("80"));
+        assert_eq!(got["db"]["name"], json!("app"));
+    }
+
+    #[test]
+    fn ini_preserving_delete_drops_a_section() {
+        let orig = "; comment\nport=80\nhost=localhost\n\n[db]\nname=app\n";
+        let old = parse_kv(orig, FileFormat::Ini).unwrap();
+        let mut new = old.clone();
+        new.as_object_mut().unwrap().remove("db");
+        let out = serialize_kv_preserving(orig, &old, &new, FileFormat::Ini).unwrap();
+        assert!(out.contains("port=80\n"), "{out:?}");
+        assert!(out.contains("host=localhost\n"), "{out:?}");
+        assert!(!out.contains("[db]"), "{out:?}");
+        assert!(!out.contains("name="), "{out:?}");
+        let got = parse_kv(&out, FileFormat::Ini).unwrap();
+        assert!(got.get("db").is_none(), "{got}");
+        assert_eq!(got["host"], json!("localhost"));
+    }
+
+    #[test]
+    fn ini_preserving_section_replaced_by_scalar_round_trips() {
+        let orig = "[port]\nhost=localhost\n";
+        let old = parse_kv(orig, FileFormat::Ini).unwrap();
+        let new = json!({"port": "80"});
+        let out = serialize_kv_preserving(orig, &old, &new, FileFormat::Ini).unwrap();
+        assert!(!out.contains("[port]"), "{out:?}");
+        assert!(!out.contains("host="), "{out:?}");
+        let got = parse_kv(&out, FileFormat::Ini).unwrap();
+        assert_eq!(got["port"], json!("80"));
+    }
+
+    #[test]
+    fn ini_preserving_delete_drops_a_key_inside_a_section() {
+        let orig = "[server]\nport=80\nhost=localhost\n";
+        let old = parse_kv(orig, FileFormat::Ini).unwrap();
+        let mut new = old.clone();
+        new["server"].as_object_mut().unwrap().remove("host");
+        let out = serialize_kv_preserving(orig, &old, &new, FileFormat::Ini).unwrap();
+        assert!(out.contains("[server]\n"), "{out:?}");
+        assert!(out.contains("port=80\n"), "{out:?}");
+        assert!(!out.contains("host="), "{out:?}");
+        let got = parse_kv(&out, FileFormat::Ini).unwrap();
+        assert_eq!(got["server"]["port"], json!("80"));
+        assert!(got["server"].get("host").is_none(), "{got}");
     }
 
     #[test]

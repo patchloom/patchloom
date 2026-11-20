@@ -661,6 +661,21 @@ fn doc_delete_removes_key() {
 }
 
 #[test]
+fn doc_delete_ini_root_key_removes_the_line() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("app.ini");
+    fs::write(&file, "port=80\nhost=localhost\n").unwrap();
+
+    let result = doc_delete(&file, "host", ApplyMode::Apply, None).unwrap();
+    assert!(result.changed);
+    assert!(result.applied);
+    assert_eq!(result.removed, 1);
+    let on_disk = fs::read_to_string(&file).unwrap();
+    assert!(!on_disk.contains("host"), "{on_disk:?}");
+    assert!(on_disk.contains("port=80"), "{on_disk:?}");
+}
+
+#[test]
 fn doc_delete_missing_key_reports_removed_zero() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("config.json");
