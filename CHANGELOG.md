@@ -11,6 +11,17 @@ present (applied to the GitHub Release body by the host job). Versioned
 sections below are managed by release-please.
 
 
+## [0.37.10](https://github.com/patchloom/patchloom/compare/patchloom-v0.37.9...patchloom-v0.37.10) (2026-11-20)
+
+
+### Bug Fixes
+
+* drop ini keys and sections that doc delete removes ([#2763](https://github.com/patchloom/patchloom/issues/2763)) ([2091007](https://github.com/patchloom/patchloom/commit/20910078bba7fcdbae6deb8eea76233c07ab4188))
+* keep env quotes, fenced tables, and the semver gate ([#2759](https://github.com/patchloom/patchloom/issues/2759)) ([c455b34](https://github.com/patchloom/patchloom/commit/c455b34ff41b67976a25f2ab6e8744151a325830))
+* keep the newline when deleting an unterminated last line ([#2761](https://github.com/patchloom/patchloom/issues/2761)) ([86347bc](https://github.com/patchloom/patchloom/commit/86347bc55386d6027a1541c109df912d096694cb))
+* read a properties value separated by a space or tab ([#2756](https://github.com/patchloom/patchloom/issues/2756)) ([68803ab](https://github.com/patchloom/patchloom/commit/68803ab4d7e250536f1b004541c6f7d22173ccd8)), closes [#2755](https://github.com/patchloom/patchloom/issues/2755)
+* scan an ini section once when dropping omitted keys ([#2764](https://github.com/patchloom/patchloom/issues/2764)) ([e9351d4](https://github.com/patchloom/patchloom/commit/e9351d47e9d03ded3cd6a41949c62c076e24f7df))
+
 ## [0.37.9](https://github.com/patchloom/patchloom/compare/patchloom-v0.37.8...patchloom-v0.37.9) (2026-11-19)
 
 

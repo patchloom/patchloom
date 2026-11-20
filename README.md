@@ -307,7 +307,7 @@ Add patchloom as a dependency (omit CLI/MCP/AST with `default-features = false`)
 
 ```toml
 [dependencies]
-patchloom = { version = "0.37.9", default-features = false } <!-- x-release-please-version -->
+patchloom = { version = "0.37.10", default-features = false } <!-- x-release-please-version -->
 ```
 
 ```rust
