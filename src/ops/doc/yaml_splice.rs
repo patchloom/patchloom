@@ -773,9 +773,9 @@ fn scan_plain_scalar(yaml: &str, start: usize, in_flow: bool, expect_key: bool) 
         if in_flow && matches!(c, b',' | b']' | b'}' | b'[' | b'{') {
             break;
         }
-        if !in_flow && matches!(c, b'[' | b'{') {
-            break;
-        }
+        // In a block value, `[` and `{` can sit inside one plain scalar
+        // (`item[2020-01-01]`). They start a flow collection only when
+        // the value itself begins with them, which the caller handles.
         if c == b':' {
             let next = b.get(i + 1).copied();
             let ws_sep = match next {
@@ -1130,6 +1130,34 @@ mod tests {
         assert_eq!(
             super::quote_plain_yaml11_scalars("foo:bar: 1\n"),
             "foo:bar: 1\n"
+        );
+    }
+
+    #[test]
+    fn quote_plain_yaml11_scalars_keeps_brackets_inside_a_plain_scalar() {
+        assert_eq!(
+            super::quote_plain_yaml11_scalars("id: item[2020-01-01]\n"),
+            "id: item[2020-01-01]\n"
+        );
+        assert_eq!(
+            super::quote_plain_yaml11_scalars("msg: use ports[1:30]\n"),
+            "msg: use ports[1:30]\n"
+        );
+        assert_eq!(
+            super::quote_plain_yaml11_scalars("n: build[1_000]\n"),
+            "n: build[1_000]\n"
+        );
+        assert_eq!(
+            super::quote_plain_yaml11_scalars("id: pre{2020-01-01}\n"),
+            "id: pre{2020-01-01}\n"
+        );
+        assert_eq!(
+            super::quote_plain_yaml11_binary("id: item[0b10]\n"),
+            "id: item[0b10]\n"
+        );
+        assert_eq!(
+            super::quote_plain_yaml11_scalars("id: [2020-01-01]\n"),
+            "id: [\"2020-01-01\"]\n"
         );
     }
 
