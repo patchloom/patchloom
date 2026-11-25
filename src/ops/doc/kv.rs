@@ -2266,4 +2266,89 @@ trail=localhost \n";
             "main.name"
         );
     }
+
+    #[test]
+    fn ini_dotted_selector_reads_an_existing_key_and_does_not_invent_a_section() {
+        let text = "[database]\nserver.port=5432\nhost=localhost\nserver.port=9\n";
+        let root = crate::ops::doc::parse_doc(text, &FileFormat::Ini).unwrap();
+        assert_eq!(root["database"]["server.port"], json!("9"), "{root}");
+
+        let dotted = crate::ops::doc::selector_for_loaded_value(
+            FileFormat::Ini,
+            &root,
+            "database.server.port",
+        );
+        assert_eq!(dotted.as_ref(), "database.\"server.port\"");
+        match crate::ops::doc::query::query_get(&root, dotted.as_ref()).unwrap() {
+            crate::ops::doc::query::QueryResult::Values(vals) => {
+                assert_eq!(vals, vec![json!("9")]);
+            }
+            other => panic!("expected a value, got {other:?}"),
+        }
+
+        let host =
+            crate::ops::doc::selector_for_loaded_value(FileFormat::Ini, &root, "database.host");
+        assert_eq!(host.as_ref(), "database.host");
+        match crate::ops::doc::query::query_get(&root, host.as_ref()).unwrap() {
+            crate::ops::doc::query::QueryResult::Values(vals) => {
+                assert_eq!(vals, vec![json!("localhost")]);
+            }
+            other => panic!("expected host, got {other:?}"),
+        }
+
+        let fresh =
+            crate::ops::doc::parse_doc("[database]\nhost=localhost\n", &FileFormat::Ini).unwrap();
+        assert!(crate::ops::doc::ini_selector_invents_nest(
+            &fresh,
+            "database.server.port"
+        ));
+        assert!(
+            crate::ops::doc::prepare_loaded_mutation(
+                FileFormat::Ini,
+                &fresh,
+                crate::ops::doc::DocMutation::Set {
+                    selector: "database.server.port".into(),
+                    value: json!("1"),
+                },
+            )
+            .is_none()
+        );
+
+        let mut updated = root.clone();
+        let ready = crate::ops::doc::prepare_loaded_mutation(
+            FileFormat::Ini,
+            &updated,
+            crate::ops::doc::DocMutation::Set {
+                selector: "database.server.port".into(),
+                value: json!("5433"),
+            },
+        )
+        .expect("existing dotted key");
+        crate::ops::doc::apply_doc_mutation(&mut updated, ready).unwrap();
+        assert_eq!(updated["database"]["server.port"], json!("5433"));
+        assert!(updated["database"].get("server").is_none(), "{updated}");
+
+        let root_key = crate::ops::doc::parse_doc("server.port=1\n", &FileFormat::Ini).unwrap();
+        let sel =
+            crate::ops::doc::selector_for_loaded_value(FileFormat::Ini, &root_key, "server.port");
+        assert_eq!(sel.as_ref(), "\"server.port\"");
+        match crate::ops::doc::query::query_get(&root_key, sel.as_ref()).unwrap() {
+            crate::ops::doc::query::QueryResult::Values(vals) => {
+                assert_eq!(vals, vec![json!("1")]);
+            }
+            other => panic!("expected root key, got {other:?}"),
+        }
+
+        let both =
+            crate::ops::doc::parse_doc("server.port=1\n[server]\nport=2\n", &FileFormat::Ini)
+                .unwrap();
+        let sel = crate::ops::doc::selector_for_loaded_value(FileFormat::Ini, &both, "server.port");
+        assert_eq!(sel.as_ref(), "server.port");
+        match crate::ops::doc::query::query_get(&both, sel.as_ref()).unwrap() {
+            crate::ops::doc::query::QueryResult::Values(vals) => {
+                assert_eq!(vals, vec![json!("2")]);
+            }
+            other => panic!("expected section key, got {other:?}"),
+        }
+    }
 }
