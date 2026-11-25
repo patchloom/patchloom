@@ -3909,7 +3909,14 @@ mod regression {
         assert_eq!(value, reparsed, "{serialized}");
         assert!(serialized.contains("build 0b10 now"), "{serialized}");
         assert!(!serialized.contains("build '0b10'"), "{serialized}");
-        assert!(serialized.contains("'0b10'"), "{serialized}");
+        assert!(!serialized.contains("build \"0b10\""), "{serialized}");
+        // noyalib-serde-yaml 0.0.64 quotes a whole binary token with
+        // double quotes. Older releases left it plain and this crate
+        // wrapped it in single quotes. Either quote keeps it a string.
+        assert!(
+            serialized.contains("'0b10'") || serialized.contains("\"0b10\""),
+            "{serialized}"
+        );
     }
 
     #[test]
