@@ -409,6 +409,10 @@ fn parse_ini(content: &str) -> anyhow::Result<Value> {
                     ),
                 }));
             }
+            // Record the header before any key. An empty section must
+            // round-trip, or the next preserving edit treats it as deleted.
+            root.entry(name.clone())
+                .or_insert_with(|| Value::Object(Map::new()));
             section = Some(name);
             continue;
         }
@@ -716,34 +720,38 @@ fn serialize_ini(value: &Value) -> anyhow::Result<String> {
             msg: ".ini documents must be an object".into(),
         })?;
     let mut out = String::new();
+    // Root keys first. A scalar after a header is read back as a key
+    // of that section.
     for (k, v) in obj {
-        match v {
-            Value::Object(inner) => {
-                ensure_ini_section_reads_back(k)?;
-                out.push('[');
-                out.push_str(k);
-                out.push_str("]\n");
-                for (ik, iv) in inner {
-                    let s = value_as_string(iv).ok_or_else(|| crate::exit::InvalidInputError {
-                        msg: format!(".ini key {k}.{ik} must be a scalar"),
-                    })?;
-                    ensure_ini_key_reads_back(ik, &s)?;
-                    out.push_str(ik);
-                    out.push('=');
-                    out.push_str(&s);
-                    out.push('\n');
-                }
-            }
-            _ => {
-                let s = value_as_string(v).ok_or_else(|| crate::exit::InvalidInputError {
-                    msg: format!(".ini key {k} must be a scalar or section object"),
-                })?;
-                ensure_ini_key_reads_back(k, &s)?;
-                out.push_str(k);
-                out.push('=');
-                out.push_str(&s);
-                out.push('\n');
-            }
+        if v.is_object() {
+            continue;
+        }
+        let s = value_as_string(v).ok_or_else(|| crate::exit::InvalidInputError {
+            msg: format!(".ini key {k} must be a scalar or section object"),
+        })?;
+        ensure_ini_key_reads_back(k, &s)?;
+        out.push_str(k);
+        out.push('=');
+        out.push_str(&s);
+        out.push('\n');
+    }
+    for (k, v) in obj {
+        let Value::Object(inner) = v else {
+            continue;
+        };
+        ensure_ini_section_reads_back(k)?;
+        out.push('[');
+        out.push_str(k);
+        out.push_str("]\n");
+        for (ik, iv) in inner {
+            let s = value_as_string(iv).ok_or_else(|| crate::exit::InvalidInputError {
+                msg: format!(".ini key {k}.{ik} must be a scalar"),
+            })?;
+            ensure_ini_key_reads_back(ik, &s)?;
+            out.push_str(ik);
+            out.push('=');
+            out.push_str(&s);
+            out.push('\n');
         }
     }
     Ok(out)
@@ -1058,10 +1066,15 @@ fn splice_ini(
                     if !ini_key_reads_back(ik, &new_s) {
                         return None;
                     }
-                    if let Some(idx) = find_ini_key_line(lines, key, ik) {
-                        lines[idx] = replace_ini_value(&lines[idx], &new_s);
-                    } else if let Some(end) = ini_section_end(lines, key) {
-                        lines.insert(end, format!("{ik}={new_s}"));
+                    let hits = find_ini_key_lines(lines, key, ik);
+                    if hits.is_empty() {
+                        if let Some(end) = ini_section_end(lines, key) {
+                            lines.insert(end, format!("{ik}={new_s}"));
+                        }
+                    } else {
+                        for idx in hits {
+                            lines[idx] = replace_ini_value(&lines[idx], &new_s);
+                        }
                     }
                 }
                 if let Some(old_inner) = old_inner
@@ -1078,10 +1091,13 @@ fn splice_ini(
                 if !ini_key_reads_back(key, &new_s) {
                     return None;
                 }
-                if let Some(idx) = find_ini_global_key(lines, key) {
-                    lines[idx] = replace_ini_value(&lines[idx], &new_s);
-                } else {
+                let hits = find_ini_global_keys(lines, key);
+                if hits.is_empty() {
                     insert_ini_root_line(lines, format!("{key}={new_s}"));
+                } else {
+                    for idx in hits {
+                        lines[idx] = replace_ini_value(&lines[idx], &new_s);
+                    }
                 }
             }
         }
@@ -1166,9 +1182,9 @@ fn ini_line_section(lines: &[String], idx: usize) -> Option<String> {
     cur
 }
 
-fn find_ini_key_line(lines: &[String], section: &str, key: &str) -> Option<usize> {
+fn find_ini_key_lines(lines: &[String], section: &str, key: &str) -> Vec<usize> {
     let mut in_section = false;
-    let mut hit = None;
+    let mut hits = Vec::new();
     for (i, line) in lines.iter().enumerate() {
         let t = line.trim();
         if let Some(name) = parse_ini_section(t) {
@@ -1176,25 +1192,25 @@ fn find_ini_key_line(lines: &[String], section: &str, key: &str) -> Option<usize
             continue;
         }
         if in_section && parse_ini_assignment(line).is_some_and(|(k, _)| k == key) {
-            hit = Some(i);
+            hits.push(i);
         }
     }
-    hit
+    hits
 }
 
-fn find_ini_global_key(lines: &[String], key: &str) -> Option<usize> {
+fn find_ini_global_keys(lines: &[String], key: &str) -> Vec<usize> {
     let mut in_section = false;
-    let mut hit = None;
+    let mut hits = Vec::new();
     for (i, line) in lines.iter().enumerate() {
         if parse_ini_section(line.trim()).is_some() {
             in_section = true;
             continue;
         }
         if !in_section && parse_ini_assignment(line).is_some_and(|(k, _)| k == key) {
-            hit = Some(i);
+            hits.push(i);
         }
     }
-    hit
+    hits
 }
 
 fn ensure_ini_section(lines: &mut Vec<String>, section: &str) {
@@ -1528,6 +1544,73 @@ mod tests {
         let out = serialize_kv_preserving(orig, &old, &new, FileFormat::Env).unwrap();
         assert!(out.contains("# keep"));
         assert!(out.contains("A=2"));
+    }
+
+    #[test]
+    fn ini_empty_section_is_kept() {
+        let text = "[defaults]\n; later\n\n[db]\nname=app\n";
+        let got = crate::ops::doc::parse_doc(text, &FileFormat::Ini).unwrap();
+        assert_eq!(got, json!({"defaults": {}, "db": {"name": "app"}}), "{got}");
+        let mut updated = got.clone();
+        updated["db"]["name"] = json!("app2");
+        let out = serialize_kv_preserving(text, &got, &updated, FileFormat::Ini).unwrap();
+        assert!(out.contains("[defaults]"), "{out:?}");
+        assert!(out.contains("; later"), "{out:?}");
+        assert!(out.contains("name=app2"), "{out:?}");
+        let again = crate::ops::doc::parse_doc(&out, &FileFormat::Ini).unwrap();
+        assert_eq!(again["defaults"], json!({}), "{again}");
+        assert_eq!(again["db"]["name"], json!("app2"), "{again}");
+
+        let written = serialize_kv(&json!({"defaults": {}}), FileFormat::Ini).unwrap();
+        let round = crate::ops::doc::parse_doc(&written, &FileFormat::Ini).unwrap();
+        assert_eq!(round, json!({"defaults": {}}), "{written:?}");
+    }
+
+    #[test]
+    fn ini_full_write_puts_root_keys_before_sections() {
+        let doc = json!({"db": {"host": "localhost"}, "theme": "dark"});
+        let written = serialize_kv(&doc, FileFormat::Ini).unwrap();
+        let theme_at = written.find("theme=dark").expect("theme line");
+        let section_at = written.find("[db]").expect("section header");
+        assert!(theme_at < section_at, "{written:?}");
+        let got = crate::ops::doc::parse_doc(&written, &FileFormat::Ini).unwrap();
+        assert_eq!(got, doc, "{written:?} -> {got}");
+    }
+
+    #[test]
+    fn ini_update_rewrites_every_copy_of_a_key() {
+        let text = "[db]\nhost=a ; old\nhost=b\n[other]\nport=1\n[db]\nhost=b\n";
+        let old = parse_kv(text, FileFormat::Ini).unwrap();
+        assert_eq!(old["db"]["host"], json!("b"), "{old}");
+        let mut updated = old.clone();
+        updated["db"]["host"] = json!("c");
+        let out = serialize_kv_preserving(text, &old, &updated, FileFormat::Ini).unwrap();
+        assert!(out.contains("host=c ; old"), "{out:?}");
+        assert!(out.contains("[other]"), "{out:?}");
+        assert!(out.contains("port=1"), "{out:?}");
+        let host_lines: Vec<_> = out
+            .lines()
+            .filter(|line| line.trim_start().starts_with("host="))
+            .collect();
+        assert_eq!(host_lines.len(), 3, "{out:?}");
+        assert!(host_lines.iter().all(|line| line.contains('c')), "{out:?}");
+        let got = parse_kv(&out, FileFormat::Ini).unwrap();
+        assert_eq!(got["db"]["host"], json!("c"), "{got}");
+
+        let root = "port=1\nport=2\n[db]\nname=app\n";
+        let old = parse_kv(root, FileFormat::Ini).unwrap();
+        assert_eq!(old["port"], json!("2"), "{old}");
+        let mut updated = old.clone();
+        updated["port"] = json!("3");
+        let out = serialize_kv_preserving(root, &old, &updated, FileFormat::Ini).unwrap();
+        let port_lines: Vec<_> = out
+            .lines()
+            .filter(|line| line.trim_start().starts_with("port="))
+            .collect();
+        assert_eq!(port_lines, ["port=3", "port=3"], "{out:?}");
+        let got = parse_kv(&out, FileFormat::Ini).unwrap();
+        assert_eq!(got["port"], json!("3"), "{got}");
+        assert_eq!(got["db"]["name"], json!("app"), "{got}");
     }
 
     #[test]
