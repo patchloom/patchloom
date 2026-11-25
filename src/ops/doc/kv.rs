@@ -383,6 +383,10 @@ fn split_properties_entry(line: &str) -> Option<PropSplit<'_>> {
     })
 }
 
+fn ini_separator_index(text: &str) -> Option<usize> {
+    text.find(['=', ':'])
+}
+
 fn parse_ini(content: &str) -> anyhow::Result<Value> {
     let mut root = Map::new();
     let mut section: Option<String> = None;
@@ -408,25 +412,23 @@ fn parse_ini(content: &str) -> anyhow::Result<Value> {
             section = Some(name);
             continue;
         }
-        let Some(eq) = trimmed.find('=') else {
-            continue;
+        let Some((key, raw_val)) = parse_ini_assignment(line) else {
+            return Err(anyhow::Error::new(crate::exit::ParseErrorError {
+                msg: format!("invalid ini assignment on line {}: {trimmed}", idx + 1),
+            }));
         };
-        let key = trimmed[..eq].trim();
-        if key.is_empty() {
-            continue;
-        }
-        let val = Value::String(ini_value_and_comment(&trimmed[eq + 1..]).0);
+        let val = Value::String(raw_val);
         match &section {
             Some(sec) => {
                 let obj = root
                     .entry(sec.clone())
                     .or_insert_with(|| Value::Object(Map::new()));
                 if let Value::Object(m) = obj {
-                    m.insert(key.to_string(), val);
+                    m.insert(key, val);
                 }
             }
             None => {
-                root.insert(key.to_string(), val);
+                root.insert(key, val);
             }
         }
     }
@@ -594,8 +596,9 @@ fn breaks_kv_line(s: &str) -> bool {
     s.chars().any(|c| c == '\n' || c == '\r')
 }
 
-/// Env and ini readers split on the first `=` and do not treat `\` as an
-/// escape in the key. A key or value that would parse as another line is rejected.
+/// Env readers split on the first `=`. Ini readers split on the first `=`
+/// or `:`. Neither treats `\` as an escape in the key. A key or value that
+/// would parse as another line is rejected.
 fn env_key_reads_back(key: &str, value: &str) -> bool {
     if breaks_kv_line(key) || value.contains('\r') {
         return false;
@@ -1095,12 +1098,15 @@ fn parse_ini_assignment(line: &str) -> Option<(String, String)> {
     {
         return None;
     }
-    let eq = trimmed.find('=')?;
-    let key = trimmed[..eq].trim();
+    let sep = ini_separator_index(trimmed)?;
+    let key = trimmed[..sep].trim();
     if key.is_empty() {
         return None;
     }
-    Some((key.to_string(), ini_value_and_comment(&trimmed[eq + 1..]).0))
+    Some((
+        key.to_string(),
+        ini_value_and_comment(&trimmed[sep + 1..]).0,
+    ))
 }
 
 /// Value, plus the inline comment suffix (including the spaces before it).
@@ -1226,11 +1232,12 @@ fn replace_ini_value(line: &str, new_s: &str) -> String {
     let trimmed_start = line.len() - line.trim_start().len();
     let prefix = &line[..trimmed_start];
     let rest = line.trim_start();
-    let Some(eq) = rest.find('=') else {
+    let Some(eq) = ini_separator_index(rest) else {
         return line.to_string();
     };
+    let delim = rest[eq..].chars().next().unwrap_or('=');
     let key_part = &rest[..eq];
-    let after = &rest[eq + 1..];
+    let after = &rest[eq + delim.len_utf8()..];
     let (_, suffix) = ini_value_and_comment(after);
     let lead = after.len() - after.trim_start().len();
     let body = &after[lead..];
@@ -1241,13 +1248,13 @@ fn replace_ini_value(line: &str, new_s: &str) -> String {
         &after[..lead]
     };
     // `color = #ff00aa` would read back as an empty comment. Drop the gap
-    // so a value that starts with `#` or `;` stays glued to `=`.
+    // so a value that starts with `#` or `;` stays glued to the separator.
     let gap = if !raw_gap.is_empty() && (new_s.starts_with('#') || new_s.starts_with(';')) {
         ""
     } else {
         raw_gap
     };
-    format!("{prefix}{key_part}={gap}{new_s}{suffix}")
+    format!("{prefix}{key_part}{delim}{gap}{new_s}{suffix}")
 }
 
 #[cfg(test)]
@@ -1385,7 +1392,7 @@ mod tests {
     fn ini_key_that_would_read_back_as_another_key_is_invalid_input() {
         let orig = "[db]\nport=1\na=1\n";
         let old = parse_kv(orig, FileFormat::Ini).unwrap();
-        for key in ["a=b", ";hidden", "#hidden"] {
+        for key in ["a=b", "a:b", ";hidden", "#hidden"] {
             let mut new = old.clone();
             new["db"][key] = json!("c");
             let err = serialize_kv_preserving(orig, &old, &new, FileFormat::Ini).unwrap_err();
@@ -1409,6 +1416,108 @@ mod tests {
         let got = parse_kv(&out, FileFormat::Ini).unwrap();
         assert_eq!(got["db"]["a"], json!("b=c"));
         assert!(got["db"].get("b").is_none());
+    }
+
+    #[test]
+    fn ini_colon_assignment_is_kept() {
+        let text = "[db]\nport: 5432\nhost=localhost\n";
+        let got = crate::ops::doc::parse_doc(text, &FileFormat::Ini).unwrap();
+        assert_eq!(
+            got,
+            json!({"db": {"host": "localhost", "port": "5432"}}),
+            "{got}"
+        );
+
+        let tight = parse_kv("[db]\nport:5432\nhost=localhost\n", FileFormat::Ini).unwrap();
+        assert_eq!(tight["db"]["port"], json!("5432"));
+        assert_eq!(tight["db"]["host"], json!("localhost"));
+
+        let root = parse_kv("port: 5432\n[db]\nhost=localhost\n", FileFormat::Ini).unwrap();
+        assert_eq!(root["port"], json!("5432"));
+        assert_eq!(root["db"]["host"], json!("localhost"));
+        assert!(root["db"].get("port").is_none(), "{root}");
+
+        let named = parse_kv("[db:port]\nhost=localhost\n", FileFormat::Ini).unwrap();
+        assert_eq!(named["db:port"]["host"], json!("localhost"));
+        assert!(named.get("db").is_none(), "{named}");
+
+        let spaced = parse_kv(
+            "[db] ; host: primary\n# c\n; also\n\nport : 5432\nurl=http://example.com:8080\nempty:\nnote: 8080 ; primary\n",
+            FileFormat::Ini,
+        )
+        .unwrap();
+        assert_eq!(spaced["db"]["port"], json!("5432"), "{spaced}");
+        assert_eq!(
+            spaced["db"]["url"],
+            json!("http://example.com:8080"),
+            "{spaced}"
+        );
+        assert_eq!(spaced["db"]["empty"], json!(""), "{spaced}");
+        assert_eq!(spaced["db"]["note"], json!("8080"), "{spaced}");
+        assert!(spaced["db"].get("host").is_none(), "{spaced}");
+        assert!(spaced.get("host").is_none(), "{spaced}");
+
+        let first_colon = parse_kv("a:b:c\n", FileFormat::Ini).unwrap();
+        assert_eq!(first_colon["a"], json!("b:c"));
+        assert!(first_colon.get("b").is_none(), "{first_colon}");
+
+        let mixed = parse_kv("a:b=c\n", FileFormat::Ini).unwrap();
+        assert_eq!(mixed["a"], json!("b=c"));
+        assert!(mixed.get("a:b").is_none(), "{mixed}");
+        assert!(mixed.get("b").is_none(), "{mixed}");
+
+        let orig = "[db]\nport: 5432 ; primary\nhost=localhost\n";
+        let old = parse_kv(orig, FileFormat::Ini).unwrap();
+        let mut updated = old.clone();
+        updated["db"]["port"] = json!("5433");
+        let out = serialize_kv_preserving(orig, &old, &updated, FileFormat::Ini).unwrap();
+        assert!(out.contains("port: 5433 ; primary"), "{out:?}");
+        assert!(out.contains("host=localhost"), "{out:?}");
+        let got = parse_kv(&out, FileFormat::Ini).unwrap();
+        assert_eq!(got["db"]["port"], json!("5433"));
+
+        let mut deleted = old.clone();
+        deleted["db"].as_object_mut().unwrap().remove("port");
+        let out = serialize_kv_preserving(orig, &old, &deleted, FileFormat::Ini).unwrap();
+        assert!(out.contains("[db]"), "{out:?}");
+        assert!(out.contains("host=localhost"), "{out:?}");
+        assert!(!out.contains("port"), "{out:?}");
+        let got = parse_kv(&out, FileFormat::Ini).unwrap();
+        assert!(got["db"].get("port").is_none(), "{got}");
+        assert_eq!(got["db"]["host"], json!("localhost"));
+
+        let color = "[s]\ncolor: red ; name\n";
+        let old = parse_kv(color, FileFormat::Ini).unwrap();
+        let mut next = old.clone();
+        next["s"]["color"] = json!("#ff00aa");
+        let out = serialize_kv_preserving(color, &old, &next, FileFormat::Ini).unwrap();
+        assert!(out.contains("color:#ff00aa ; name"), "{out:?}");
+        let got = parse_kv(&out, FileFormat::Ini).unwrap();
+        assert_eq!(got["s"]["color"], json!("#ff00aa"));
+
+        let spaced_key = "[s]\nport : 1\n";
+        let old = parse_kv(spaced_key, FileFormat::Ini).unwrap();
+        let mut next = old.clone();
+        next["s"]["port"] = json!("2");
+        let out = serialize_kv_preserving(spaced_key, &old, &next, FileFormat::Ini).unwrap();
+        assert!(out.contains("port : 2\n"), "{out:?}");
+    }
+
+    #[test]
+    fn ini_line_that_is_not_an_assignment_is_a_parse_error() {
+        for (src, snippet) in [
+            ("[db]\nport: 5432\nnot an assignment\n", "not an assignment"),
+            ("[db]\n=5432\n", "=5432"),
+            ("[db]\n:5432\n", ":5432"),
+            ("[db]\nport 5432\n", "port 5432"),
+            ("just text\n", "just text"),
+        ] {
+            let err = crate::ops::doc::parse_doc(src, &FileFormat::Ini).unwrap_err();
+            assert!(crate::exit::is_parse_error(&err), "{src}: {err}");
+            let msg = err.to_string();
+            assert!(msg.contains("line "), "{src}: {msg}");
+            assert!(msg.contains(snippet), "{src}: {msg}");
+        }
     }
 
     #[test]
