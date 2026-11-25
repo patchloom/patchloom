@@ -177,6 +177,179 @@ pub fn rewrite_mutation_for_format(mutation: DocMutation, format: FileFormat) ->
     }
 }
 
+fn plain_dot_parts(selector: &str) -> Option<Vec<&str>> {
+    if selector.is_empty()
+        || selector.contains('"')
+        || selector.contains('\'')
+        || selector.contains('[')
+        || selector.contains(']')
+    {
+        return None;
+    }
+    let parts: Vec<&str> = selector.split('.').collect();
+    if parts.len() < 2 || parts.iter().any(|part| part.is_empty()) {
+        return None;
+    }
+    Some(parts)
+}
+
+fn quote_selector_atom(atom: &str) -> String {
+    if atom.contains(['.', '"', '\\', '[', ' ', ':']) {
+        let escaped = atom.replace('\\', "\\\\").replace('"', "\\\"");
+        format!("\"{escaped}\"")
+    } else {
+        atom.to_string()
+    }
+}
+
+/// When an unquoted dotted selector misses, an INI key may contain the dots.
+///
+/// `database.host` still walks section then key, because that walk hits.
+/// `database.server.port` hits key `server.port` inside section `database`
+/// when that key is present. A root key `server.port` is used only when no
+/// section path matches. Shorter section prefixes are tried first.
+fn ini_existing_dotted_selector(root: &serde_json::Value, selector: &str) -> Option<String> {
+    let parts = plain_dot_parts(selector)?;
+    let parsed = selector::parse(selector).ok()?;
+    if !selector::eval(root, &parsed).is_empty() {
+        return None;
+    }
+    let obj = root.as_object()?;
+    for i in 1..parts.len() {
+        let section = parts[..i].join(".");
+        let key = parts[i..].join(".");
+        if obj
+            .get(&section)
+            .and_then(serde_json::Value::as_object)
+            .is_some_and(|section_obj| section_obj.contains_key(&key))
+        {
+            return Some(format!(
+                "{}.{}",
+                quote_selector_atom(&section),
+                quote_selector_atom(&key)
+            ));
+        }
+    }
+    if obj.get(selector).is_some_and(|value| !value.is_object()) {
+        return Some(quote_selector_atom(selector));
+    }
+    None
+}
+
+/// An INI document has no section inside a section. Three or more plain
+/// dots that do not name an existing key would make `doc set` create one.
+pub(crate) fn ini_selector_invents_nest(root: &serde_json::Value, selector: &str) -> bool {
+    let Some(parts) = plain_dot_parts(selector) else {
+        return false;
+    };
+    if parts.len() < 3 {
+        return false;
+    }
+    if ini_existing_dotted_selector(root, selector).is_some() {
+        return false;
+    }
+    !matches!(
+        selector::parse(selector),
+        Ok(parsed) if !selector::eval(root, &parsed).is_empty()
+    )
+}
+
+/// Properties and env quoting, then an INI dotted-key rewrite when the
+/// loaded document contains that key.
+pub fn selector_for_loaded_value<'a>(
+    format: FileFormat,
+    root: &serde_json::Value,
+    selector: &'a str,
+) -> Cow<'a, str> {
+    let base = rewrite_selector_for_format(selector, format);
+    if format != FileFormat::Ini {
+        return base;
+    }
+    match ini_existing_dotted_selector(root, base.as_ref()) {
+        Some(rewritten) => Cow::Owned(rewritten),
+        None => base,
+    }
+}
+
+/// [`selector_for_loaded_value`] using the format detected from `path`.
+pub fn selector_for_path_value<'a>(
+    path: &str,
+    root: &serde_json::Value,
+    selector: &'a str,
+) -> Cow<'a, str> {
+    match detect_format(path) {
+        Ok(format) => selector_for_loaded_value(format, root, selector),
+        Err(_) => Cow::Borrowed(selector),
+    }
+}
+
+fn map_loaded_selector(
+    format: FileFormat,
+    root: &serde_json::Value,
+    selector: String,
+    refuse_invent: bool,
+) -> Option<String> {
+    if refuse_invent && format == FileFormat::Ini && ini_selector_invents_nest(root, &selector) {
+        return None;
+    }
+    Some(selector_for_loaded_value(format, root, &selector).into_owned())
+}
+
+/// Format rewrite plus INI dotted keys. `None` means the selector would
+/// create a nested section and should stay a no-match.
+pub(crate) fn prepare_loaded_mutation(
+    format: FileFormat,
+    root: &serde_json::Value,
+    mutation: DocMutation,
+) -> Option<DocMutation> {
+    let mutation = rewrite_mutation_for_format(mutation, format);
+    let keep = |selector: String| map_loaded_selector(format, root, selector, false);
+    let create = |selector: String| map_loaded_selector(format, root, selector, true);
+    Some(match mutation {
+        DocMutation::Set { selector, value } => DocMutation::Set {
+            selector: create(selector)?,
+            value,
+        },
+        DocMutation::Delete { selector } => DocMutation::Delete {
+            selector: keep(selector)?,
+        },
+        DocMutation::Merge { selector, value } => DocMutation::Merge {
+            selector: match selector {
+                Some(selector) => Some(create(selector)?),
+                None => None,
+            },
+            value,
+        },
+        DocMutation::Append { selector, value } => DocMutation::Append {
+            selector: create(selector)?,
+            value,
+        },
+        DocMutation::Prepend { selector, value } => DocMutation::Prepend {
+            selector: create(selector)?,
+            value,
+        },
+        DocMutation::Update { selector, value } => DocMutation::Update {
+            selector: keep(selector)?,
+            value,
+        },
+        DocMutation::Move { from, to } => DocMutation::Move {
+            from: keep(from)?,
+            to: create(to)?,
+        },
+        DocMutation::Ensure { selector, value } => DocMutation::Ensure {
+            selector: create(selector)?,
+            value,
+        },
+        DocMutation::DeleteWhere {
+            selector,
+            predicate,
+        } => DocMutation::DeleteWhere {
+            selector: keep(selector)?,
+            predicate,
+        },
+    })
+}
+
 pub fn detect_format_from_path(path: &str) -> anyhow::Result<FileFormat> {
     let p = Path::new(path);
     if let Some(name) = p.file_name().and_then(|n| n.to_str())

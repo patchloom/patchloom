@@ -713,7 +713,7 @@ fn execute_with_mode_inner(
         DocAction::Get { file, selector } | DocAction::Select { file, selector } => {
             crate::verbose!("doc: get/select file={}, selector={:?}", file, selector);
             let root = load_file(file)?;
-            let selector = crate::ops::doc::rewrite_selector_for_path(file, selector);
+            let selector = crate::ops::doc::selector_for_path_value(file, &root, selector);
             match crate::ops::doc::query::query_get(&root, selector.as_ref())? {
                 crate::ops::doc::query::QueryResult::NoMatch => format_no_match(
                     &no_match_selector_msg(&root, selector.as_ref()),
@@ -737,7 +737,7 @@ fn execute_with_mode_inner(
         DocAction::Has { file, selector } => {
             crate::verbose!("doc: has file={}, selector={:?}", file, selector);
             let root = load_file(file)?;
-            let selector = crate::ops::doc::rewrite_selector_for_path(file, selector);
+            let selector = crate::ops::doc::selector_for_path_value(file, &root, selector);
             let found = crate::ops::doc::query::query_has(&root, selector.as_ref())?;
             // Boolean query: missing is a valid answer (exit 0), not no_matches (#1843).
             Ok((
@@ -754,7 +754,7 @@ fn execute_with_mode_inner(
         DocAction::Keys { file, selector } => {
             crate::verbose!("doc: keys file={}, selector={:?}", file, selector);
             let root = load_file(file)?;
-            let selector = crate::ops::doc::rewrite_selector_for_path(file, selector);
+            let selector = crate::ops::doc::selector_for_path_value(file, &root, selector);
             match crate::ops::doc::query::keys_at(&root, selector.as_ref()) {
                 Ok(keys) => {
                     let output = match output_mode {
@@ -777,7 +777,7 @@ fn execute_with_mode_inner(
         DocAction::Len { file, selector } => {
             crate::verbose!("doc: len file={}, selector={:?}", file, selector);
             let root = load_file(file)?;
-            let selector = crate::ops::doc::rewrite_selector_for_path(file, selector);
+            let selector = crate::ops::doc::selector_for_path_value(file, &root, selector);
             match crate::ops::doc::query::len_at(&root, selector.as_ref()) {
                 Ok(len) => Ok((
                     format_query_success(

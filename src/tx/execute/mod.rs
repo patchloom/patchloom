@@ -679,10 +679,6 @@ pub(crate) fn execute_doc_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
 
     let (path, mutation) = crate::plan::op_to_doc_mutation(op)
         .ok_or_else(|| anyhow::anyhow!("execute_doc_op called with non-doc operation"))?;
-    let mutation = match crate::ops::doc::detect_format(path) {
-        Ok(fmt) => crate::ops::doc::rewrite_mutation_for_format(mutation, fmt),
-        Err(_) => mutation,
-    };
     let root = match get_doc_root(tx.pending, tx.existed_before, tx.doc_cache, path, tx.cwd) {
         Ok(root) => root,
         Err(e) if if_exists_set && crate::exit::is_io_not_found(&e) => return Ok(()),
@@ -695,7 +691,7 @@ pub(crate) fn execute_doc_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
             _ => "",
         };
         let selector = match crate::ops::doc::detect_format(path) {
-            Ok(fmt) => crate::ops::doc::rewrite_selector_for_format(selector, fmt).into_owned(),
+            Ok(fmt) => crate::ops::doc::selector_for_loaded_value(fmt, root, selector).into_owned(),
             Err(_) => selector.to_string(),
         };
         match crate::ops::doc::query::query_has(root, &selector) {
@@ -717,6 +713,18 @@ pub(crate) fn execute_doc_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
         Operation::DocDelete { .. } => "doc.delete",
         Operation::DocDeleteWhere { .. } => "doc.delete_where",
         _ => "",
+    };
+
+    let mutation = match crate::ops::doc::detect_format(path) {
+        Ok(fmt) => match crate::ops::doc::prepare_loaded_mutation(fmt, root, mutation) {
+            Some(mutation) => mutation,
+            None => {
+                return Err(anyhow::Error::new(crate::exit::NoMatchError {
+                    msg: format!("{path}: selector matched nothing"),
+                }));
+            }
+        },
+        Err(_) => mutation,
     };
 
     match apply_doc_mutation(root, mutation).map_err(path_err(path))? {
