@@ -960,17 +960,17 @@ fn replace_env_value(line: &str, new_s: &str) -> String {
 /// scalar, or a root key that became a section, would also leave the
 /// old line beside the new one.
 fn drop_stale_ini_lines(lines: &mut Vec<String>, new_obj: &Map<String, Value>) {
-    let mut remove = Vec::new();
+    let mut drop_line = vec![false; lines.len()];
     let mut i = 0;
     while i < lines.len() {
         if let Some(name) = parse_ini_section(lines[i].trim()) {
             let keep_section = matches!(new_obj.get(&name), Some(Value::Object(_)));
             if !keep_section {
-                remove.push(i);
+                drop_line[i] = true;
                 i += 1;
                 while i < lines.len() && parse_ini_section(lines[i].trim()).is_none() {
                     if parse_ini_assignment(&lines[i]).is_some() {
-                        remove.push(i);
+                        drop_line[i] = true;
                     }
                     i += 1;
                 }
@@ -979,21 +979,28 @@ fn drop_stale_ini_lines(lines: &mut Vec<String>, new_obj: &Map<String, Value>) {
         }
         i += 1;
     }
+    // Root assignments sit before the first header. Once a header has
+    // been seen, later lines belong to a section.
+    let mut seen_header = false;
     for (i, line) in lines.iter().enumerate() {
-        if remove.contains(&i) || ini_line_section(lines, i).is_some() {
+        if parse_ini_section(line.trim()).is_some() {
+            seen_header = true;
+            continue;
+        }
+        if seen_header || drop_line[i] {
             continue;
         }
         if let Some((key, _)) = parse_ini_assignment(line) {
             match new_obj.get(&key) {
-                None | Some(Value::Object(_)) => remove.push(i),
+                None | Some(Value::Object(_)) => drop_line[i] = true,
                 Some(_) => {}
             }
         }
     }
-    remove.sort_unstable();
-    remove.dedup();
-    for i in remove.into_iter().rev() {
-        lines.remove(i);
+    for i in (0..lines.len()).rev() {
+        if drop_line[i] {
+            lines.remove(i);
+        }
     }
 }
 
@@ -1014,8 +1021,8 @@ fn insert_ini_root_line(lines: &mut Vec<String>, line: String) {
 
 /// Remove keys the section object no longer has, in one forward pass.
 ///
-/// `ini_line_section` restarts from line 0, so calling it on every line
-/// of every section makes a one-key update scan the file once per section.
+/// Restarting from line 0 on every line makes a one-key update scan the
+/// file once per section.
 fn remove_omitted_ini_section_keys(
     lines: &mut Vec<String>,
     section: &str,
@@ -1170,16 +1177,6 @@ fn split_ini_inline_comment(raw: &str) -> (&str, &str) {
         }
     }
     (&raw[..start], &raw[start..])
-}
-
-fn ini_line_section(lines: &[String], idx: usize) -> Option<String> {
-    let mut cur = None;
-    for line in lines.iter().take(idx + 1) {
-        if let Some(name) = parse_ini_section(line.trim()) {
-            cur = Some(name);
-        }
-    }
-    cur
 }
 
 fn find_ini_key_lines(lines: &[String], section: &str, key: &str) -> Vec<usize> {
