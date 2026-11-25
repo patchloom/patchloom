@@ -446,7 +446,7 @@ fn parse_ini_section(trimmed: &str) -> Option<String> {
         return None;
     }
     let end = trimmed.find(']')?;
-    let inner = &trimmed[1..end];
+    let inner = trimmed[1..end].trim();
     if inner.is_empty() || inner.contains('[') {
         return None;
     }
@@ -1564,6 +1564,28 @@ mod tests {
         let written = serialize_kv(&json!({"defaults": {}}), FileFormat::Ini).unwrap();
         let round = crate::ops::doc::parse_doc(&written, &FileFormat::Ini).unwrap();
         assert_eq!(round, json!({"defaults": {}}), "{written:?}");
+    }
+
+    #[test]
+    fn ini_section_header_trims_surrounding_space() {
+        let text = "[ database ]\nhost=localhost\n";
+        let got = crate::ops::doc::parse_doc(text, &FileFormat::Ini).unwrap();
+        assert_eq!(got, json!({"database": {"host": "localhost"}}), "{got}");
+        let mut updated = got.clone();
+        updated["database"]["host"] = json!("127.0.0.1");
+        let out = serialize_kv_preserving(text, &got, &updated, FileFormat::Ini).unwrap();
+        assert!(out.contains("[ database ]"), "{out:?}");
+        assert!(out.contains("host=127.0.0.1"), "{out:?}");
+        assert_eq!(out.matches('[').count(), 1, "{out:?}");
+        let again = crate::ops::doc::parse_doc(&out, &FileFormat::Ini).unwrap();
+        assert_eq!(again["database"]["host"], json!("127.0.0.1"), "{again}");
+
+        let spaced = parse_kv("[ my section ]\nname=app\n", FileFormat::Ini).unwrap();
+        assert_eq!(spaced["my section"]["name"], json!("app"), "{spaced}");
+
+        let err = parse_kv("[   ]\nhost=1\n", FileFormat::Ini).unwrap_err();
+        assert!(crate::exit::is_parse_error(&err), "{err}");
+        assert!(err.to_string().contains("[   ]"), "{err}");
     }
 
     #[test]
