@@ -682,7 +682,7 @@ fn quote_whole_plain_scalars(yaml: &str, quote: char, needs_quote: fn(&str) -> b
             continue;
         }
 
-        if let Some(end) = scan_plain_scalar(yaml, i, !flow.is_empty(), expect_key) {
+        if let Some(end) = scan_plain_scalar(yaml, i, !flow.is_empty()) {
             let scalar = &yaml[i..end];
             if needs_quote(scalar) {
                 // Single quotes for binary integers, double quotes for
@@ -731,7 +731,7 @@ fn is_block_header_rest(yaml: &str, mut i: usize) -> bool {
 }
 
 /// End offset of one plain scalar, not including a following key colon.
-fn scan_plain_scalar(yaml: &str, start: usize, in_flow: bool, expect_key: bool) -> Option<usize> {
+fn scan_plain_scalar(yaml: &str, start: usize, in_flow: bool) -> Option<usize> {
     let b = yaml.as_bytes();
     if start >= b.len() {
         return None;
@@ -778,15 +778,15 @@ fn scan_plain_scalar(yaml: &str, start: usize, in_flow: bool, expect_key: bool) 
         // the value itself begins with them, which the caller handles.
         if c == b':' {
             let next = b.get(i + 1).copied();
+            // A colon ends the scalar only as a key separator: end of
+            // input, whitespace, or a flow closer. `1:30:t` is one key.
             let ws_sep = match next {
                 None => true,
                 Some(n) if n.is_ascii_whitespace() => true,
                 Some(n) if in_flow && matches!(n, b',' | b']' | b'}') => true,
                 _ => false,
             };
-            let flow_key_sep =
-                expect_key && in_flow && !matches!(next, Some(n) if n.is_ascii_digit());
-            if ws_sep || flow_key_sep {
+            if ws_sep {
                 break;
             }
         }
@@ -1181,7 +1181,7 @@ mod tests {
         );
         assert_eq!(
             super::quote_plain_yaml11_scalars("{2020-01-01:keep}\n"),
-            "{\"2020-01-01\":keep}\n"
+            "{2020-01-01:keep}\n"
         );
         assert_eq!(
             super::quote_plain_yaml11_scalars("- 2020-01-01\n"),
@@ -1195,6 +1195,17 @@ mod tests {
             super::quote_plain_yaml11_scalars("t: 1:30\n"),
             "t: \"1:30\"\n"
         );
+    }
+
+    #[test]
+    fn quote_plain_yaml11_scalars_keeps_a_compact_flow_key() {
+        for sample in ["{1:30:t}\n", "{2020-01-01:keep}\n", "{1:30:90}\n"] {
+            let quoted = super::quote_plain_yaml11_scalars(sample);
+            assert_eq!(quoted, sample);
+            let before: serde_json::Value = serde_yaml_ng::from_str(sample).unwrap();
+            let after: serde_json::Value = serde_yaml_ng::from_str(&quoted).unwrap();
+            assert_eq!(before, after, "{sample} -> {quoted:?}");
+        }
     }
 
     #[test]
