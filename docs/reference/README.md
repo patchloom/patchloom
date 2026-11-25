@@ -236,7 +236,7 @@ These are the main entry points. If you are deciding between commands, start her
 <!-- ref:command:search -->
 ## `search`
 
-- **What it does:** Searches text files with literal or regex matching, optional context, counts, and file only results. A directory walk skips binary and invalid UTF-8 files. Naming one explicit non-text file fails with `invalid_input` (exit 1) instead of a silent skip.
+- **What it does:** Searches text files with literal or regex matching, optional context, counts, and file only results. A directory walk skips binary and invalid UTF-8 files. Naming one explicit binary file fails with `error_kind: "binary"` (exit 1). Naming one explicit invalid UTF-8 file fails with `error_kind: "invalid_encoding"` (exit 1).
 - **Use when:** You need to locate candidate edits, audit repo state, or narrow inputs before changing files. For AI agents, native search/grep tools are typically faster for simple pattern matching.
 - **Prefer instead:** Use `replace` for actual text mutation, or `doc`, `md`, or `patch` when you already know the structured change you want.
 - **Failure behavior:** Pattern miss on existing roots exits `3` with `error_kind: "no_matches"`. When every explicit path root (or non-stdin `--files-from` entry) is missing, exit `1` with `error_kind: "not_found"`. Empty pattern, incompatible flags (`-l` with `-L`, `--unique`, invalid regex) use `invalid_input`. Search `--unique` is rejected with a pointer at `replace --unique` (search is read-only).
@@ -245,7 +245,7 @@ These are the main entry points. If you are deciding between commands, start her
 <!-- ref:command:replace -->
 ## `replace`
 
-- **What it does:** Performs mechanical string replacement across one or many text files, with literal or regex matching. A directory walk skips binary and invalid UTF-8 files. Naming one explicit non-text file fails with `invalid_input` (exit 1) instead of a silent skip. Regex `^` and `$` use the same line ends as `search` (LF, CRLF, and a lone CR), including mid-file CR.
+- **What it does:** Performs mechanical string replacement across one or many text files, with literal or regex matching. A directory walk skips binary and invalid UTF-8 files. Naming one explicit binary file fails with `error_kind: "binary"` (exit 1). Naming one explicit invalid UTF-8 file fails with `error_kind: "invalid_encoding"` (exit 1). Regex `^` and `$` use the same line ends as `search` (LF, CRLF, and a lone CR), including mid-file CR.
 - **Use when:** You are doing a rename, version bump, boilerplate rewrite, or another string level change where plain text semantics are enough. For AI agents doing single-file replacements, native search_replace tools are typically faster; use patchloom `replace` inside `tx` plans when batching multiple file edits.
 - **Prefer instead:** Use `doc` for structured data, `md` for heading aware markdown, or `patch` when you already have a unified diff.
 - **Failure behavior:** Soft pattern miss exits `3` with `error_kind: "no_matches"`; `--unique` multi-match exits `5` with `ambiguous`. All-explicit-path-missing (or all-missing `--files-from` list) exits `1` with `not_found`. Empty `--files-from` (empty list file or empty stdin) exits `1` with `invalid_input` (not pattern miss; #1796). Validation failures and invalid regex patterns use `invalid_input`.
@@ -290,7 +290,7 @@ These are the main entry points. If you are deciding between commands, start her
 <!-- ref:command:tidy -->
 ## `tidy`
 
-- **What it does:** Checks or fixes trailing whitespace, line endings, and final newlines in text files. A directory walk skips binary and invalid UTF-8 files. Naming one explicit non-text file fails with `invalid_input` (exit 1) instead of a silent skip.
+- **What it does:** Checks or fixes trailing whitespace, line endings, and final newlines in text files. A directory walk skips binary and invalid UTF-8 files. Naming one explicit binary file fails with `error_kind: "binary"` (exit 1). Naming one explicit invalid UTF-8 file fails with `error_kind: "invalid_encoding"` (exit 1).
 - **Use when:** You need repo text normalization, or a CI guard for basic text tidiness.
 - **Failure behavior:** `tidy fix` with both `--dedent` and `--indent` exits `1` with `error_kind: "invalid_input"` under `--json`/`--jsonl`. An unusable spec value is rejected the same way, before any file is read: `--dedent` accepts `auto`, `tab`, or a non-negative integer, and `--indent` accepts `tab` or a non-negative integer (`auto` is dedent-only). `0` is a deliberate no-op, not an error. Numeric dedent counts leading whitespace *characters*, so indents made of multi-byte whitespace (U+00A0, U+3000) are handled per character rather than per byte. When every explicit path root is missing, exit `1` with `error_kind: "not_found"` (not vacuous clean success). Pending tidy issues under `tidy check` exit `2` (`CHANGES_DETECTED`).
 - **Prefer instead:** Use write policy flags when the cleanup should only apply to files already being touched by another command.
@@ -1052,14 +1052,14 @@ Use these when newline and whitespace correctness is the main concern.
 <!-- ref:tidy-action:check -->
 ### `tidy check`
 
-- **What it does:** Reports missing final newlines, mixed line endings, and trailing whitespace in text files. A directory walk skips binary and invalid UTF-8 files. Naming one explicit non-text file fails with `invalid_input` (exit 1) instead of a silent skip.
+- **What it does:** Reports missing final newlines, mixed line endings, and trailing whitespace in text files. A directory walk skips binary and invalid UTF-8 files. Naming one explicit binary file fails with `error_kind: "binary"` (exit 1). Naming one explicit invalid UTF-8 file fails with `error_kind: "invalid_encoding"` (exit 1).
 - **Use when:** You want a non mutating tidy audit for CI or local review.
 - **Prefer instead:** Use `tidy fix` when the goal is to normalize the files immediately.
 
 <!-- ref:tidy-action:fix -->
 ### `tidy fix`
 
-- **What it does:** Applies newline and whitespace normalization to text files. A directory walk skips binary and invalid UTF-8 files. Naming one explicit non-text file fails with `invalid_input` (exit 1) instead of a silent skip. With no write-policy flags (and without `--respect-editorconfig`), it enables final-newline and trailing-whitespace fixes and unmixes mixed line endings so it matches the issues bare `tidy check` always reports. Uniform CRLF or LF files stay as they are unless `--normalize-eol` is set. Pass explicit flags (or EditorConfig) to narrow the fix set.
+- **What it does:** Applies newline and whitespace normalization to text files. A directory walk skips binary and invalid UTF-8 files. Naming one explicit binary file fails with `error_kind: "binary"` (exit 1). Naming one explicit invalid UTF-8 file fails with `error_kind: "invalid_encoding"` (exit 1). With no write-policy flags (and without `--respect-editorconfig`), it enables final-newline and trailing-whitespace fixes and unmixes mixed line endings so it matches the issues bare `tidy check` always reports. Uniform CRLF or LF files stay as they are unless `--normalize-eol` is set. Pass explicit flags (or EditorConfig) to narrow the fix set.
 - **Use when:** Existing files already need cleanup and the cleanup itself is the task.
 - **Prefer instead:** Use write policy flags on another write command when normalization should only apply to files already being touched by that command.
 
