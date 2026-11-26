@@ -11,6 +11,18 @@ present (applied to the GitHub Release body by the host job). Versioned
 sections below are managed by release-please.
 
 
+## [0.37.11](https://github.com/patchloom/patchloom/compare/patchloom-v0.37.10...patchloom-v0.37.11) (2026-11-25)
+
+
+### Bug Fixes
+
+* address an ini key that contains a dot ([#2772](https://github.com/patchloom/patchloom/issues/2772)) ([2008611](https://github.com/patchloom/patchloom/commit/200861176b293996635f9d31e8aeda7fa3691a1e))
+* keep a compact YAML flow key in one piece ([#2776](https://github.com/patchloom/patchloom/issues/2776)) ([5dcb94a](https://github.com/patchloom/patchloom/commit/5dcb94a1d051232ce4afb58b8fbb86873acb9477))
+* keep an ini assignment that uses a colon ([#2767](https://github.com/patchloom/patchloom/issues/2767)) ([5c3406d](https://github.com/patchloom/patchloom/commit/5c3406d7f86025420bb4b3b64ded4e60c50ceadb))
+* keep brackets inside a YAML plain scalar ([#2774](https://github.com/patchloom/patchloom/issues/2774)) ([bbf40a0](https://github.com/patchloom/patchloom/commit/bbf40a0058e388104992d373e1dc7d6e621d0a71))
+* keep ini sections, root keys, and duplicate assignments ([#2769](https://github.com/patchloom/patchloom/issues/2769)) ([ec880a8](https://github.com/patchloom/patchloom/commit/ec880a80aa8c83c836f04299363f7be2253d7dcf))
+* raise noyalib-serde-yaml and tree-sitter-c-sharp ([#2773](https://github.com/patchloom/patchloom/issues/2773)) ([689dc0d](https://github.com/patchloom/patchloom/commit/689dc0ddccd00ee7b306098fc7605140bb725fc8))
+
 ## [0.37.10](https://github.com/patchloom/patchloom/compare/patchloom-v0.37.9...patchloom-v0.37.10) (2026-11-20)
 
 
