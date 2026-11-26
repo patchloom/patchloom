@@ -1,7 +1,7 @@
-# Pack the local stdio MCPB and publish to Smithery after a GitHub Release.
-# Soft-skips when SMITHERY_API_KEY is unset (same pattern as Chocolatey).
-# Auth: create a key at smithery.ai (account API keys) or `smithery auth token`,
-# then: gh secret set SMITHERY_API_KEY --repo patchloom/patchloom
+# Pack the local stdio MCPB after a GitHub Release.
+# Smithery stopped server publish on 2026-10-31 (API, accounts, API keys).
+# A 403 body of servers:write is a skip, not a failed release.
+# Soft-skips when SMITHERY_API_KEY is unset. Do not mint a new key.
 name: Publish Smithery
 
 on:
@@ -91,7 +91,7 @@ jobs:
           set -euo pipefail
           if [ -z "${SMITHERY_API_KEY:-}" ]; then
             echo "SMITHERY_API_KEY unset; packing succeeded, publish soft-skipped."
-            echo "Set the secret via: smithery auth login && smithery auth whoami --full | gh secret set SMITHERY_API_KEY"
+            echo "Smithery stopped server publish on 2026-10-31. Do not mint a new key."
             exit 0
           fi
           # Do not curl|python the npm registry here: Scorecard Pinned-

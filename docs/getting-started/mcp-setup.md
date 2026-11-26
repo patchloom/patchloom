@@ -26,27 +26,20 @@ with an explicit version (for example after a failed publish).
 
 ## Smithery (local MCPB)
 
-[Smithery](https://smithery.ai/) can list local stdio servers via an
-[MCPB](https://github.com/modelcontextprotocol/mcpb) bundle (URL publish is
-for hosted Streamable HTTP endpoints; Patchloom's primary agent path is local
-stdio).
+Smithery stopped server publish on 2026-10-31. The site remains a public
+directory and no longer accepts uploads. Do not create `SMITHERY_API_KEY`.
 
-The bundle lives under [`mcpb/`](../../mcpb/) and runs:
+The bundle under [`mcpb/`](../../mcpb/) is still useful for desktop hosts. It runs:
 
 1. `patchloom mcp-server` if the binary is on `PATH`, else
 2. `npx -y patchloom@<version> mcp-server` (Node.js 18+).
 
 ```bash
 make pack-mcpb   # writes target/mcpb/patchloom-<version>.mcpb (override with VERSION=x.y.z)
-# One-time auth + CI secret:
-#   smithery auth login
-#   export SMITHERY_API_KEY=$(smithery auth whoami --full | sed -n 's/^SMITHERY_API_KEY=//p')
-#   gh secret set SMITHERY_API_KEY --repo patchloom/patchloom
-bash scripts/publish-smithery.sh   # REST upload (reliable for stdio MCPB)
 ```
 
-CI: `.github/workflows/publish-smithery.yml` packs after each GitHub Release and
-publishes when the `SMITHERY_API_KEY` secret is set (soft-skip otherwise).
+CI packs that file after each GitHub Release. A 403 that says `servers:write`
+is skipped. List the server in the official MCP Registry instead.
 
 ## Glama directory
 

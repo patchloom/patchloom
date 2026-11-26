@@ -25,15 +25,12 @@ The pack script stamps `version` from root `Cargo.toml` into `manifest.json`,
 This reuses the multi-platform npm installer from cargo-dist instead of shipping
 several large native binaries inside the zip.
 
-## Publish to Smithery
+## Smithery
 
-```bash
-# One-time: smithery auth login
-# export SMITHERY_API_KEY=$(smithery auth whoami --full | sed -n "s/^SMITHERY_API_KEY=//p")
-# gh secret set SMITHERY_API_KEY --repo patchloom/patchloom   # for CI
-make pack-mcpb
-bash scripts/publish-smithery.sh
-```
+Smithery stopped server publish on 2026-10-31. Accounts, API keys, and the
+publish API no longer accept uploads. [smithery.ai](https://smithery.ai/)
+remains a public directory. Do not create `SMITHERY_API_KEY`.
 
-CI: `.github/workflows/publish-smithery.yml` packs after a GitHub Release and
-publishes when `SMITHERY_API_KEY` is configured (soft-skip otherwise).
+`make pack-mcpb` still builds the bundle for desktop hosts. CI packs it after
+a GitHub Release. A leftover key that gets HTTP 403 `servers:write` is a
+skip, not a failed release.

@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Publish target/mcpb/patchloom-<ver>.mcpb to Smithery (stdio MCPB).
-# Requires: SMITHERY_API_KEY, jq, curl. Prefer this over `smithery mcp publish`
-# for CI: CLI 1.2.0 can return 400 "No values to set" while the REST API works.
+# Requires: SMITHERY_API_KEY, jq, curl.
+# Smithery stopped the publish API, accounts, and API keys on 2026-10-31
+# (https://smithery.ai/future). A 403 body of "servers:write" is that
+# shutdown: the script prints it and exits 0. Other HTTP errors still fail.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -91,6 +93,13 @@ text = open(sys.argv[1], encoding="utf-8", errors="replace").read()
 text = re.sub(r"smry_[A-Za-z0-9+/=._-]+", "[redacted]", text)
 print(text[:2000], file=sys.stderr)
 PY
+  if [ "$http_code" = "403" ] && grep -q "servers:write" "$body_file"; then
+    echo "Smithery stopped server publish on 2026-10-31. The API, accounts, and API keys no longer accept uploads." >&2
+    echo "See https://smithery.ai/future" >&2
+    echo "The MCPB pack is kept. This upload is skipped. Do not rotate SMITHERY_API_KEY." >&2
+    rm -f "$body_file"
+    exit 0
+  fi
   rm -f "$body_file"
   exit 1
 fi
